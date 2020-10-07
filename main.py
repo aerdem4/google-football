@@ -10,7 +10,4 @@ lugano = Agent()
 @human_readable_agent
 def agent(obs):
     global lugano
-    if obs['ball_owned_player'] == obs['active'] and obs['ball_owned_team'] == 0:
-        return lugano.attack(obs)
-    else:
-        return lugano.defend(obs)
+    return lugano.act(obs)
