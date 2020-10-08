@@ -8,6 +8,7 @@ class GameCache:
         self.controlled_player = []
         self.attacking = []
         self.time_since_ball = 0
+        self.current_obs = None
 
     def _get_speed(self, obj_array):
         if len(obj_array) < 2:
@@ -15,6 +16,7 @@ class GameCache:
         return obj_array[-1] - obj_array[-2]
 
     def update(self, obs):
+        self.current_obs = obs
         self.time += 1
         self.ball.append(np.array(obs["ball"][:2]))
         self.attacking.append((obs['ball_owned_player'] == obs['active']) and (obs['ball_owned_team'] == 0))
