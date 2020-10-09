@@ -38,14 +38,14 @@ class Agent:
         closest_opp_dist, closest_opp = self._get_closest_opponent(self.controlled_player_pos)
         has_yellow = self.gc.current_obs["left_team_yellow_card"][self.gc.current_obs['active']]
 
-        safe_to_slide = (self.controlled_player_pos[0] > -0.7) and not has_yellow
+        safe_to_slide = (self.controlled_player_pos[0] > -0.2) and not has_yellow
         # TODO: check dir
-        if ball_dist + 0.01 < closest_opp_dist < 0.05 and safe_to_slide:
+        if ball_dist + 0.02 < closest_opp_dist < 0.05 and safe_to_slide:
             return True
         return False
 
-    def _decide_clear_ball(self):
-        if (self.gc.ball[-1][0] < -0.4) and (self.action_counter[Action.HighPass] > 19):
+    def _decide_clear_ball(self, action):
+        if (self.gc.ball[-1][0] < -0.4) and (self.action_counter[action] > 19):
             return True
         return False
 
@@ -60,6 +60,11 @@ class Agent:
         if Action.Sprint in self.gc.current_obs['sticky_actions'] and ball_coming:
             return Action.ReleaseSprint
 
+        time_projection = 2
+        if self.gc.ball[-1][0] < self.controlled_player_pos[0]:
+            time_projection = 9
+        dir_action = self._run_towards(self.controlled_player_pos,
+                                       self.gc.ball[-1] + time_projection * self.gc.get_ball_speed())
         if not self.gc.neutral_ball:
             if self._decide_sliding():
                 return Action.Slide
@@ -68,9 +73,8 @@ class Agent:
             if self.gc.ball[-1][0] - self.controlled_player_pos[0] < -0.1:
                 return self._run_towards(self.controlled_player_pos, self.own_penalty)
 
-        dir_action = self._run_towards(self.controlled_player_pos, self.gc.ball[-1] + 2*self.gc.get_ball_speed())
-        if self._decide_clear_ball() and (dir_action in self.gc.current_obs["sticky_actions"]):
-            return Action.HighPass
+            if self._decide_clear_ball(Action.ShortPass) and (dir_action in self.gc.current_obs["sticky_actions"]):
+                return Action.ShortPass
 
         return dir_action
 
@@ -80,7 +84,7 @@ class Agent:
         if self.gc.current_obs["game_mode"] == GameMode.Corner:
             return Action.HighPass
 
-        if self._decide_clear_ball():
+        if self._decide_clear_ball(Action.HighPass):
             return self.macro_list.add_macro([Action.Right, Action.HighPass], True)
 
         direction = self.gc.current_obs["left_team_direction"][self.gc.current_obs["active"]]
@@ -95,7 +99,7 @@ class Agent:
                 return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right, Action.Shot], True)
 
         if self.gc.time_since_ball == 5:
-            if direction[0] < 0 and abs(direction[0]) > abs(direction[1]):
+            if direction[0] < 0:
                 return Action.ShortPass
 
         if self.gc.time_since_ball > 1:
