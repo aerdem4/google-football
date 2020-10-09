@@ -9,6 +9,7 @@ class GameCache:
         self.attacking = []
         self.time_since_ball = 0
         self.current_obs = None
+        self.neutral_ball = True
 
     def _get_speed(self, obj_array):
         if len(obj_array) < 2:
@@ -29,6 +30,10 @@ class GameCache:
                 self.controlled_player = []
             self.time_since_ball = 0
         self.controlled_player.append(np.array(obs['left_team'][obs['active']]))
+
+        self.neutral_ball = False
+        if obs['ball_owned_team'] == -1:
+            self.neutral_ball = True
 
     def get_ball_speed(self):
         return self._get_speed(self.ball)

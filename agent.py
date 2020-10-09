@@ -1,3 +1,4 @@
+from collections import defaultdict
 import numpy as np
 from kaggle_environments.envs.football.helpers import Action, PlayerRole, GameMode
 from game_cache import GameCache
@@ -16,6 +17,7 @@ class Agent:
                             Action.Left, Action.TopLeft, Action.Top, Action.TopRight]
         self.controlled_player_pos = None
         self.macro_list = MacroList(self.gc)
+        self.action_counter = defaultdict(lambda: 99)
 
     def _run_towards(self, source, target):
         which_dir = int(((utils.angle([source[0], source[1]], [target[0], target[1]]) + 22.5) % 360) // 45)
@@ -37,23 +39,40 @@ class Agent:
         has_yellow = self.gc.current_obs["left_team_yellow_card"][self.gc.current_obs['active']]
 
         safe_to_slide = (self.controlled_player_pos[0] > -0.7) and not has_yellow
-        gap = 0.02 - 0.02*self.gc.time/3000
-        if (ball_dist + gap < closest_opp_dist < 0.05) and safe_to_slide:
+        # TODO: check dir
+        if ball_dist + 0.01 < closest_opp_dist < 0.05 and safe_to_slide:
+            return True
+        return False
+
+    def _decide_clear_ball(self):
+        if (self.gc.ball[-1][0] < -0.4) and (self.action_counter[Action.HighPass] > 19):
             return True
         return False
 
     def defend(self):
-        if Action.Sprint not in self.gc.current_obs['sticky_actions']:
+        ball_coming = False
+        if len(self.gc.ball) > 1:
+            ball_dist_now = utils.distance(self.controlled_player_pos, self.gc.ball[-1])
+            ball_dist_prev = utils.distance(self.controlled_player_pos, self.gc.ball[-2])
+            ball_coming = 0.1 < ball_dist_now < ball_dist_prev
+        if Action.Sprint not in self.gc.current_obs['sticky_actions'] and not ball_coming:
             return Action.Sprint
+        if Action.Sprint in self.gc.current_obs['sticky_actions'] and ball_coming:
+            return Action.ReleaseSprint
 
-        if self._decide_sliding():
-            return Action.Slide
+        if not self.gc.neutral_ball:
+            if self._decide_sliding():
+                return Action.Slide
 
-        # ball is far
-        if self.gc.ball[-1][0] - self.controlled_player_pos[0] < -0.1:
-            return self._run_towards(self.controlled_player_pos, self.own_penalty)
+            # ball is far
+            if self.gc.ball[-1][0] - self.controlled_player_pos[0] < -0.1:
+                return self._run_towards(self.controlled_player_pos, self.own_penalty)
 
-        return self._run_towards(self.controlled_player_pos, self.gc.ball[-1] + 2*self.gc.get_ball_speed())
+        dir_action = self._run_towards(self.controlled_player_pos, self.gc.ball[-1] + 2*self.gc.get_ball_speed())
+        if self._decide_clear_ball() and (dir_action in self.gc.current_obs["sticky_actions"]):
+            return Action.HighPass
+
+        return dir_action
 
     def attack(self):
         if self.gc.current_obs["game_mode"] == GameMode.Penalty:
@@ -61,18 +80,22 @@ class Agent:
         if self.gc.current_obs["game_mode"] == GameMode.Corner:
             return Action.HighPass
 
+        if self._decide_clear_ball():
+            return self.macro_list.add_macro([Action.Right, Action.HighPass], True)
+
         direction = self.gc.current_obs["left_team_direction"][self.gc.current_obs["active"]]
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.controlled_player_pos, self.opponent_goal)
         dist_to_gk = utils.distance(self.controlled_player_pos, opp_gk)
-        if (dist_to_goal < 0.3) or (dist_to_gk < 0.3):
-            return self.macro_list.add_macro([Action.ReleaseSprint, Action.TopRight, Action.Shot], True)
+        if (dist_to_goal < 0.3) or (dist_to_gk < 0.3) and (self.action_counter[Action.Shot] > 19):
+            if Action.Right in self.gc.current_obs["sticky_actions"]:
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.TopRight, Action.Shot], True)
+            else:
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right, Action.Shot], True)
 
         if self.gc.time_since_ball == 5:
-            if self.controlled_player_pos[0] < -0.4:
-                return Action.HighPass
-            elif direction[0] < 0 and abs(direction[0]) > abs(direction[1]):
+            if direction[0] < 0 and abs(direction[0]) > abs(direction[1]):
                 return Action.ShortPass
 
         if self.gc.time_since_ball > 1:
@@ -86,12 +109,15 @@ class Agent:
         self.gc.update(obs)
         self.controlled_player_pos = obs['left_team'][obs['active']]
         action = self.macro_list.step()
-        if action is not None:
-            return action
+        if action is None:
+            if self.gc.attacking[-1]:
+                action = self.attack()
+            else:
+                action = self.defend()
 
-        if self.gc.attacking[-1]:
-            return self.attack()
-        else:
-            return self.defend()
+        for k in self.action_counter.keys():
+            self.action_counter[k] += 1
+        self.action_counter[action] = 0
+        return action
         #except:
         #    return Action.Shot
