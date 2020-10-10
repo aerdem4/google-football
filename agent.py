@@ -79,11 +79,6 @@ class Agent:
         return dir_action
 
     def attack(self):
-        if self.gc.current_obs["game_mode"] == GameMode.Penalty:
-            return Action.Shot
-        if self.gc.current_obs["game_mode"] == GameMode.Corner:
-            return Action.HighPass
-
         if self._decide_clear_ball(Action.HighPass):
             return self.macro_list.add_macro([Action.Right, Action.HighPass], True)
 
@@ -92,11 +87,15 @@ class Agent:
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.controlled_player_pos, self.opponent_goal)
         dist_to_gk = utils.distance(self.controlled_player_pos, opp_gk)
-        if (dist_to_goal < 0.3) or (dist_to_gk < 0.3) and (self.action_counter[Action.Shot] > 19):
-            if Action.Right in self.gc.current_obs["sticky_actions"]:
-                return self.macro_list.add_macro([Action.ReleaseSprint, Action.TopRight, Action.Shot], True)
-            else:
-                return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right, Action.Shot], True)
+        if (dist_to_goal < 0.3) or (dist_to_gk < 0.3):
+            not_good_for_shot = (direction[0] < 0 or abs(self.controlled_player_pos[1]) > 0.15)
+            if (self.action_counter[Action.ShortPass] > 19) and not_good_for_shot:
+                return Action.ShortPass
+            if self.action_counter[Action.Shot] > 19:
+                if Action.Right in self.gc.current_obs["sticky_actions"]:
+                    return self.macro_list.add_macro([Action.ReleaseSprint, Action.TopRight, Action.Shot], True)
+                else:
+                    return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right, Action.Shot], True)
 
         if self.gc.time_since_ball == 5:
             if direction[0] < 0:
@@ -114,6 +113,12 @@ class Agent:
         self.controlled_player_pos = obs['left_team'][obs['active']]
         action = self.macro_list.step()
         if action is None:
+            if self.gc.neutral_ball:
+                if self.gc.current_obs["game_mode"] == GameMode.Penalty:
+                    return Action.Shot
+                if self.gc.current_obs["game_mode"] == GameMode.Corner:
+                    return Action.HighPass
+
             if self.gc.attacking[-1]:
                 action = self.attack()
             else:
