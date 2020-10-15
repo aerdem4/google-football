@@ -57,7 +57,7 @@ class Agent:
             ball_coming = 0.1 < ball_dist_now < ball_dist_prev
         if Action.Sprint not in self.gc.current_obs['sticky_actions'] and not ball_coming:
             return Action.Sprint
-        if Action.Sprint in self.gc.current_obs['sticky_actions'] and ball_coming:
+        if Action.Sprint in self.gc.current_obs['sticky_actions'] and ball_coming and self.gc.neutral_ball:
             return Action.ReleaseSprint
 
         time_projection = 2
@@ -69,9 +69,13 @@ class Agent:
             if self._decide_sliding():
                 return Action.Slide
 
-            # ball is far
-            if self.gc.ball[-1][0] - self.controlled_player_pos[0] < -0.1:
-                return self._run_towards(self.controlled_player_pos, self.own_penalty)
+            if not utils.between(self.controlled_player_pos, self.own_goal, self.gc.ball[-1], threshold=-0.5):
+                between_point = (np.array(self.gc.ball[-1]) + np.array(self.own_goal))/2
+                action = self._run_towards(self.controlled_player_pos, between_point)
+                if action in self.gc.current_obs["sticky_actions"]:
+                    return Action.Idle
+                else:
+                    return action
 
             if self._decide_clear_ball(Action.ShortPass) and (dir_action in self.gc.current_obs["sticky_actions"]):
                 return Action.ShortPass
@@ -92,10 +96,10 @@ class Agent:
             if (self.action_counter[Action.ShortPass] > 19) and not_good_for_shot:
                 return Action.ShortPass
             if self.action_counter[Action.Shot] > 19:
+                last_move = Action.Right
                 if Action.Right in self.gc.current_obs["sticky_actions"]:
-                    return self.macro_list.add_macro([Action.ReleaseSprint, Action.TopRight, Action.Shot], True)
-                else:
-                    return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right, Action.Shot], True)
+                    last_move = Action.TopRight
+                return self.macro_list.add_macro([Action.ReleaseSprint, last_move] + [Action.Shot]*3, True)
 
         if self.gc.time_since_ball == 5:
             if direction[0] < 0:
