@@ -1,15 +1,19 @@
 import numpy as np
+from player import get_player_obs
 
 
 class GameCache:
     def __init__(self):
         self.time = 0
         self.ball = []
-        self.controlled_player = []
+        self.controlled_player_pos = []
+        self.controlled_player = None
         self.attacking = []
         self.time_since_ball = 0
         self.current_obs = None
         self.neutral_ball = True
+        self.players = None
+        self.sticky_actions = []
 
     def _get_speed(self, obj_array):
         if len(obj_array) < 2:
@@ -19,24 +23,32 @@ class GameCache:
     def update(self, obs):
         self.current_obs = obs
         self.time += 1
+        self.players = get_player_obs(obs)
+
         self.ball.append(np.array(obs["ball"][:2]))
-        self.attacking.append((obs['ball_owned_player'] == obs['active']) and (obs['ball_owned_team'] == 0))
+
+        teammates = self.players["left_team"]
+        self.controlled_player = teammates[obs['active']]
+        self.controlled_player_pos.append(self.controlled_player.pos)
+
+        self.attacking.append(self.controlled_player.ball_owned)
         if self.attacking[-1]:
             if self.time_since_ball == 0:  # gained the ball
-                self.controlled_player = []
+                self.controlled_player_pos = []
             self.time_since_ball += 1
         else:
             if self.time_since_ball > 0:  # lost the ball
-                self.controlled_player = []
+                self.controlled_player_pos = []
             self.time_since_ball = 0
-        self.controlled_player.append(np.array(obs['left_team'][obs['active']]))
 
         self.neutral_ball = False
         if obs['ball_owned_team'] == -1:
             self.neutral_ball = True
 
+        self.sticky_actions = obs["sticky_actions"]
+
     def get_ball_speed(self):
         return self._get_speed(self.ball)
 
     def get_player_speed(self):
-        return self._get_speed(self.controlled_player)
+        return self._get_speed(self.controlled_player_pos)
