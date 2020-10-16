@@ -19,6 +19,8 @@ class Agent:
         self.own_penalty = [-0.85, 0]
         self.dir_actions = [Action.Right, Action.BottomRight, Action.Bottom, Action.BottomLeft,
                             Action.Left, Action.TopLeft, Action.Top, Action.TopRight]
+        self.dir_xy = np.array([[1, 0], [1, -1], [0, -1], [-1, -1],
+                                [-1, 0], [-1, 1], [0, 1], [1, 1]])
         self.macro_list = MacroList(self.gc)
         self.action_counter = defaultdict(lambda: 99)
 
@@ -47,10 +49,12 @@ class Agent:
             return True
         return False
 
-    def _decide_clear_ball(self, action):
-        if (self.gc.ball[-1][0] < -0.4) and (self.action_counter[action] > 19):
-            return True
-        return False
+    def _decide_clear_ball(self):
+        if (self.gc.ball[-1][0] < -0.7) and (self.action_counter[Action.Shot] > 19):
+            return Action.Shot
+        if (self.gc.ball[-1][0] < -0.3) and (self.action_counter[Action.HighPass] > 19):
+            return Action.HighPass
+        return None
 
     def defend(self):
         ball_coming = False
@@ -73,21 +77,33 @@ class Agent:
                 return Action.Slide
 
             if not utils.between(self.gc.controlled_player.pos, self.own_goal, self.gc.ball[-1], threshold=-0.5):
-                between_point = (np.array(self.gc.ball[-1]) + np.array(self.own_goal))/2
+                between_point = (3*np.array(self.gc.ball[-1]) + np.array(self.own_goal))/4
                 action = self._run_towards(self.gc.controlled_player.pos, between_point)
                 if action in self.gc.sticky_actions:
                     return Action.Idle
                 else:
                     return action
 
-            if self._decide_clear_ball(Action.ShortPass) and (dir_action in self.gc.sticky_actions):
-                return Action.ShortPass
+            clear_action = self._decide_clear_ball()
+            if clear_action is not None and (dir_action in self.gc.sticky_actions):
+                return clear_action
 
         return dir_action
 
     def attack(self):
-        if self._decide_clear_ball(Action.HighPass):
-            return self.macro_list.add_macro([Action.Right, Action.HighPass], True)
+        desired_dir = list(set(self.gc.sticky_actions).intersection(self.dir_actions))
+        if len(desired_dir) == 1:
+            desired_dir = desired_dir[0]
+            which = np.argmax([desired_dir == d for d in self.dir_actions])
+            on_dir = utils.cosine_sim(self.gc.controlled_player.direction, self.dir_xy[which]) > 0.2
+            if not on_dir and Action.Sprint in self.gc.sticky_actions:
+                return Action.ReleaseSprint
+            if on_dir and Action.Sprint not in self.gc.sticky_actions:
+                return Action.Sprint
+
+        clear_action = self._decide_clear_ball()
+        if clear_action is not None:
+            return self.macro_list.add_macro([Action.Right, clear_action], True)
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opponent_goal)
@@ -115,10 +131,6 @@ class Agent:
         if self.gc.time_since_ball == 5:
             if self.gc.controlled_player.direction[0] < 0:
                 return Action.ShortPass
-
-        if self.gc.time_since_ball > 1:
-            if Action.Sprint not in self.gc.sticky_actions:
-                return Action.Sprint
 
         return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty)
 

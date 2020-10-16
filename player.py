@@ -30,9 +30,13 @@ def get_player_obs(obs):
             player.tired = obs[f"{team_name}_tired_factor"][i]
 
             if team_name == "left_team":
-                player.offside = sum([player.pos[0] < opp[0] for opp in obs["right_team"]]) < 2
+                player.offside = player.pos[0] > obs["ball"][0]
+                if player.offside:
+                    player.offside = sum([player.pos[0] < opp[0] for opp in obs["right_team"]]) < 2
             else:
-                player.offside = sum([player.pos[0] > opp[0] for opp in obs["left_team"]]) < 2
+                player.offside = player.pos[0] < obs["ball"][0]
+                if player.offside:
+                    player.offside = sum([player.pos[0] > opp[0] for opp in obs["left_team"]]) < 2
 
             players[team_name].append(player)
 
