@@ -13,10 +13,10 @@ OWN_TEAM = "left_team"
 class Agent:
     def __init__(self):
         self.gc = GameCache()
-        self.opponent_goal = [1.0, 0]
-        self.opponent_penalty = [0.85, 0]
-        self.own_goal = [-1.0, 0]
-        self.own_penalty = [-0.85, 0]
+        self.opp_goal = np.array([1.0, 0])
+        self.opponent_penalty = np.array([0.85, 0])
+        self.own_goal = np.array([-1.0, 0])
+        self.own_penalty = np.array([-0.85, 0])
         self.dir_actions = [Action.Right, Action.BottomRight, Action.Bottom, Action.BottomLeft,
                             Action.Left, Action.TopLeft, Action.Top, Action.TopRight]
         self.dir_xy = np.array([[1, 0], [1, -1], [0, -1], [-1, -1],
@@ -106,13 +106,11 @@ class Agent:
             return self.macro_list.add_macro([Action.Right, clear_action], True)
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
-        dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opponent_goal)
+        dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
         dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
-        if (dist_to_goal < 0.3) or (dist_to_gk < 0.3):
-            not_good_for_shot = (self.gc.controlled_player.direction[0] < 0 or
-                                 abs(self.gc.controlled_player.pos[1]) > 0.15)
-            if (self.action_counter[Action.ShortPass] > 19) and not_good_for_shot:
-                return Action.ShortPass
+        looking_towards_goal = utils.cosine_sim(self.opp_goal - self.gc.controlled_player.pos,
+                                                self.gc.controlled_player.direction) > 0.5
+        if ((dist_to_goal < 0.3) or (dist_to_gk < 0.3)) and looking_towards_goal:
             if self.action_counter[Action.Shot] > 19:
                 last_move = Action.Right
                 if Action.Right in self.gc.sticky_actions:
@@ -122,9 +120,10 @@ class Agent:
         obstacle_detected = self._get_closest(self.gc.controlled_player.pos +
                                               7*self.gc.get_player_speed(), OPP_TEAM)[0] < 0.05
         looking_forward = self.gc.controlled_player.direction[0] > 0
-        forward_teammates = [player for player in self.gc.players[OWN_TEAM]
-                             if not player.offside and utils.distance(player.pos, self.opponent_goal) < dist_to_goal]
-        if obstacle_detected and looking_forward and len(forward_teammates) > 0:
+        forward_teammates = [player.offside for player in self.gc.players[OWN_TEAM]
+                             if utils.distance(player.pos, self.opp_goal) < dist_to_goal - 0.05]
+        any_offside = any(forward_teammates)
+        if obstacle_detected and looking_forward and len(forward_teammates) > 0 and not any_offside:
             if self.action_counter[Action.LongPass] > 19:
                 return Action.LongPass
 
