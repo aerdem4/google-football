@@ -58,9 +58,11 @@ class Agent:
         return False
 
     def _decide_clear_ball(self):
-        if (self.gc.ball[-1][0] < -0.7) and (self.action_counter[Action.Shot] > 19):
+        if self.gc.ball[-1][0] > -0.3:
+            return None
+        if self.gc.controlled_player.direction[0] < 0 and (self.action_counter[Action.Shot] > 9):
             return Action.Shot
-        if (self.gc.ball[-1][0] < -0.3) and (self.action_counter[Action.HighPass] > 19):
+        if self.gc.controlled_player.direction[0] > 0 and (self.action_counter[Action.HighPass] > 9):
             return Action.HighPass
         return None
 
@@ -76,15 +78,25 @@ class Agent:
                 return Action.Sprint
         return None
 
-    def defend(self):
-        dist_to_ball = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
+    def _calculate_intercept(self, ball_speed):
+        intercept_point = self.gc.ball[-1]
+        for i in range(1, 20):
+            intercept_point = self.gc.ball[-1] + i*ball_speed
+            if utils.distance(intercept_point, self.gc.controlled_player.pos) < 0.02*i:
+                return intercept_point
+        return intercept_point
 
-        speed_constant = 0.02
+    def defend(self):
         intent = self.gc.get_ball_speed()
         if not self.gc.neutral_ball:
             path = self.own_goal - self.gc.ball[-1]
-            intent = (intent + speed_constant*path/utils.length(path))/2
-        intercept_point = self.gc.ball[-1] + intent*dist_to_ball/speed_constant
+            intent = 0.015*path/utils.length(path)
+        intercept_point = self._calculate_intercept(intent)
+
+        dist_to_intercept = utils.distance(self.gc.controlled_player.pos, intercept_point)
+        defenders = [p for p in self.gc.players[OWN_TEAM] if utils.distance(p.pos, intercept_point) < dist_to_intercept]
+        if len(defenders) > 2:
+            return Action.ReleaseDirection
 
         #if self._decide_sliding(intercept_point):
         #    return Action.Slide
@@ -102,14 +114,15 @@ class Agent:
 
         clear_action = self._decide_clear_ball()
         if clear_action is not None:
-            return self.macro_list.add_macro([Action.Right, clear_action], True)
+            return clear_action
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
         dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
         looking_towards_goal = utils.cosine_sim(self.opp_goal - self.gc.controlled_player.pos,
                                                 self.gc.controlled_player.direction) > 0.5
-        if ((dist_to_goal < 0.3) or (dist_to_gk < 0.3)) and looking_towards_goal:
+        angle = np.abs(self.gc.ball[-1] - self.opp_goal)
+        if ((dist_to_goal < 0.3) or (dist_to_gk < 0.3)) and looking_towards_goal and angle[0] > angle[1]:
             if self.action_counter[Action.Shot] > 19:
                 last_move = Action.Right
                 if Action.Right in self.gc.sticky_actions:
