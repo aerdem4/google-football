@@ -14,6 +14,7 @@ class GameCache:
         self.neutral_ball = True
         self.players = None
         self.sticky_actions = []
+        self.time_since_controlling = 0
 
     def _get_speed(self, obj_array):
         if len(obj_array) < 2:
@@ -28,6 +29,11 @@ class GameCache:
         self.ball.append(np.array(obs["ball"][:2]))
 
         teammates = self.players["left_team"]
+        # TODO: check jersey number instead
+        self.time_since_controlling += 1
+        if self.controlled_player and self.controlled_player.role != teammates[obs['active']].role:
+            self.time_since_controlling = 0
+
         self.controlled_player = teammates[obs['active']]
         self.controlled_player_pos.append(self.controlled_player.pos)
 
