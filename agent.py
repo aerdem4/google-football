@@ -101,6 +101,10 @@ class Agent:
         #if self._decide_sliding(intercept_point):
         #    return Action.Slide
 
+        dist_to_ball = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
+        if dist_to_intercept < dist_to_ball and Action.Sprint in self.gc.sticky_actions:
+            return Action.ReleaseSprint
+
         dir_action = self._run_towards(self.gc.controlled_player.pos, intercept_point)
         sprint_action = self._decide_sprint()
         if dir_action in self.gc.sticky_actions and sprint_action is not None:
@@ -108,6 +112,9 @@ class Agent:
         return dir_action
 
     def attack(self):
+        if self.gc.time_since_ball == 1:
+            return Action.Right
+
         sprint_action = self._decide_sprint()
         if sprint_action is not None:
             return sprint_action
