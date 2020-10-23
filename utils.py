@@ -2,8 +2,8 @@ import math
 import numpy as np
 
 
-def length(vec):
-    return math.sqrt(np.sum(vec*vec))
+def length(vec, eps=1e-6):
+    return math.sqrt(np.sum(vec*vec)) + eps
 
 
 def distance(source, target):

@@ -19,8 +19,8 @@ class Agent:
         self.own_penalty = np.array([-0.85, 0])
         self.dir_actions = [Action.Right, Action.BottomRight, Action.Bottom, Action.BottomLeft,
                             Action.Left, Action.TopLeft, Action.Top, Action.TopRight]
-        self.dir_xy = np.array([[1, 0], [1, -1], [0, -1], [-1, -1],
-                                [-1, 0], [-1, 1], [0, 1], [1, 1]])
+        self.dir_xy = np.array([[1, 0], [1, 1], [0, 1], [-1, 1],
+                                [-1, 0], [-1, -1], [0, -1], [1, -1]])
         self.macro_list = MacroList(self.gc)
         self.action_counter = defaultdict(lambda: 99)
 
@@ -177,7 +177,7 @@ class Agent:
         if action is None:
             if self.gc.neutral_ball:
                 if self.gc.current_obs["game_mode"] == GameMode.Penalty:
-                    return Action.Shot
+                    return self.macro_list.add_macro([Action.Right] + [Action.Shot]*3, True)
                 if self.gc.current_obs["game_mode"] == GameMode.Corner:
                     return Action.HighPass
 
