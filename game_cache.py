@@ -6,6 +6,7 @@ class GameCache:
     def __init__(self):
         self.time = 0
         self.ball = []
+        self.ball_height = []
         self.controlled_player_pos = []
         self.controlled_player = None
         self.attacking = []
@@ -27,6 +28,7 @@ class GameCache:
         self.players = get_player_obs(obs)
 
         self.ball.append(np.array(obs["ball"][:2]))
+        self.ball_height.append(np.array(obs["ball"][2]))
 
         teammates = self.players["left_team"]
         # TODO: check jersey number instead

@@ -41,8 +41,8 @@ class Agent:
         closest = np.argmin(distances)
         return distances[closest], self.gc.players[team][closest]
 
-    def _decide_sliding(self, intercept_point):
-        close_enough = utils.distance(self.gc.controlled_player.pos, intercept_point) < 0.04
+    def _decide_sliding(self):
+        close_enough = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1]) < 0.04
         _, closest_opp = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
         opponent_between = utils.between(closest_opp.pos, self.gc.ball[-1], self.gc.controlled_player.pos,
                                          threshold=-0.5) and self.gc.get_player_speed()[0] > 0
@@ -58,15 +58,19 @@ class Agent:
         return False
 
     def _decide_clear_ball(self):
-        if self.gc.ball[-1][0] > -0.3:
+        press_dist, press_player = self._get_closest(self.gc.ball[-1], OPP_TEAM, exclude_gk=True)
+        if self.gc.ball[-1][0] > -0.3 or press_dist > 0.2:
             return None
-        if self.gc.controlled_player.direction[0] < 0 and (self.action_counter[Action.Shot] > 9):
-            return Action.Shot
+        if self.gc.controlled_player.direction[0] < 0 and (self.action_counter[Action.ShortPass] > 9):
+            direction = Action.Bottom
+            if self.gc.controlled_player.direction[1] < 0:
+                direction = Action.Top
+            return [direction] + [Action.ShortPass]*3 + [Action.Idle]
         if self.gc.controlled_player.direction[0] > 0 and (self.action_counter[Action.HighPass] > 9):
-            return Action.HighPass
+            return [Action.Right] + [Action.HighPass]*3 + [Action.Idle]
         return None
 
-    def _decide_sprint(self):
+    def _decide_sprint_attack(self):
         desired_dir = list(set(self.gc.sticky_actions).intersection(self.dir_actions))
         if len(desired_dir) == 1:
             desired_dir = desired_dir[0]
@@ -78,50 +82,59 @@ class Agent:
                 return Action.Sprint
         return None
 
-    def _calculate_intercept(self, ball_speed):
-        intercept_point = self.gc.ball[-1]
-        for i in range(1, 20):
-            intercept_point = self.gc.ball[-1] + i*ball_speed
-            if utils.distance(intercept_point, self.gc.controlled_player.pos) < 0.02*i:
-                return intercept_point
-        return intercept_point
+    def _decide_sprint_defense(self):
+        ball_coming = False
+        if len(self.gc.ball) > 1:
+            ball_dist_now = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
+            ball_dist_prev = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-2])
+            ball_coming = 0.1 < ball_dist_now < ball_dist_prev
+        if Action.Sprint not in self.gc.sticky_actions and not ball_coming:
+            return Action.Sprint
+        if Action.Sprint in self.gc.sticky_actions and ball_coming and self.gc.neutral_ball:
+            return Action.ReleaseSprint
+        return None
 
     def defend(self):
-        intent = self.gc.get_ball_speed()
-        if not self.gc.neutral_ball:
-            path = self.own_goal - self.gc.ball[-1]
-            intent = 0.015*path/utils.length(path)
-        intercept_point = self._calculate_intercept(intent)
-
-        dist_to_intercept = utils.distance(self.gc.controlled_player.pos, intercept_point)
-        defenders = [p for p in self.gc.players[OWN_TEAM] if utils.distance(p.pos, intercept_point) < dist_to_intercept]
-        if len(defenders) > 2:
-            return Action.ReleaseDirection
-
-        #if self._decide_sliding(intercept_point):
-        #    return Action.Slide
-
-        dist_to_ball = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
-        if dist_to_intercept < dist_to_ball and Action.Sprint in self.gc.sticky_actions:
-            return Action.ReleaseSprint
-
-        dir_action = self._run_towards(self.gc.controlled_player.pos, intercept_point)
-        sprint_action = self._decide_sprint()
-        if dir_action in self.gc.sticky_actions and sprint_action is not None:
-            return sprint_action
-        return dir_action
-
-    def attack(self):
-        if self.gc.time_since_ball == 1:
-            return Action.Right
-
-        sprint_action = self._decide_sprint()
+        sprint_action = self._decide_sprint_defense()
         if sprint_action is not None:
             return sprint_action
 
+        if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
+            return self._run_towards(self.gc.controlled_player.pos, self.gc.ball[-1])
+
+        dir_action = self._run_towards(self.gc.controlled_player.pos,
+                                       self.gc.ball[-1] + 9 * self.gc.get_ball_speed())
+        dist_to_ball = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
+
+        if not self.gc.neutral_ball:
+            in_between = utils.between(self.gc.controlled_player.pos, self.own_goal, self.gc.ball[-1], threshold=-0.5)
+            if not in_between or (dist_to_ball > 0.1 and self.gc.get_ball_speed()[0] < 0 and self.gc.ball[-1][0] < 0):
+                between_point = (3*np.array(self.gc.ball[-1]) + np.array(self.own_goal))/4
+                dist_to_intercept = utils.distance(self.gc.controlled_player.pos, between_point)
+
+                teammates = self.gc.players[OWN_TEAM]
+                teammates = [p for p in teammates if p.role != PlayerRole.GoalKeeper]
+                teammates_available = sum([utils.distance(p.pos, between_point) + 0.02 < dist_to_intercept
+                                           for p in teammates])
+
+                if teammates_available > 1 and dist_to_ball > 0.1:
+                    return Action.ReleaseDirection
+
+                action = self._run_towards(self.gc.controlled_player.pos, between_point)
+                if action in self.gc.sticky_actions:
+                    return Action.Idle
+                else:
+                    return action
+
+        #if self._decide_sliding():
+        #    return Action.Slide
+
+        return dir_action
+
+    def attack(self):
         clear_action = self._decide_clear_ball()
         if clear_action is not None:
-            return clear_action
+            return self.macro_list.add_macro(clear_action, True)
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
@@ -150,7 +163,11 @@ class Agent:
             if self.gc.controlled_player.direction[0] < 0:
                 return Action.ShortPass
 
-        return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty)
+        direction = self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty)
+        sprint_action = self._decide_sprint_attack()
+        if sprint_action is not None and direction in self.gc.sticky_actions:
+            return sprint_action
+        return direction
 
     def act(self, obs):
         #try:
