@@ -21,8 +21,14 @@ class Agent:
                             Action.Left, Action.TopLeft, Action.Top, Action.TopRight]
         self.dir_xy = np.array([[1, 0], [1, 1], [0, 1], [-1, 1],
                                 [-1, 0], [-1, -1], [0, -1], [1, -1]])
+        self.pass_discounts = [1.0, 1.0, 1.0, 0.75, 0.5, 0.75, 1.0, 1.0]
         self.macro_list = MacroList(self.gc)
         self.action_counter = defaultdict(lambda: 99)
+        self.landmarks = [(self.own_goal, -20), (self.opp_goal, 20), (self.opponent_penalty, 20)]
+
+    def _check_pass_counter(self, delay):
+        return all([self.action_counter[action] > delay
+                    for action in [Action.ShortPass, Action.LongPass, Action.HighPass]])
 
     def _neigbor_dirs(self, direction):
         index = int(np.argmax([d == direction for d in self.dir_actions]))
@@ -63,14 +69,6 @@ class Agent:
             return True
         return False
 
-    def _decide_clear_ball(self):
-        press_dist, press_player = self._get_closest(self.gc.ball[-1], OPP_TEAM, exclude_gk=True)
-        if self.gc.ball[-1][0] > -0.3 or press_dist > 0.2:
-            return None
-        if self.gc.controlled_player.direction[0] > 0 and (self.action_counter[Action.HighPass] > 9):
-            return [Action.ReleaseSprint, Action.Right] + [Action.HighPass]*3 + [Action.Idle]
-        return None
-
     def _get_desired_dir(self):
         desired_dir = list(set(self.gc.sticky_actions).intersection(self.dir_actions))
         if len(desired_dir) == 1:
@@ -102,63 +100,80 @@ class Agent:
         return None
 
     def _decide_dir(self):
-        vectors = [opp.pos - self.gc.controlled_player.pos for opp in self.gc.players[OPP_TEAM]]
+        opps = [(opp.pos, 1, 0.2) for opp in self.gc.players[OPP_TEAM]]
+        boundaries = [[self.gc.controlled_player.pos[0], 0.45], [self.gc.controlled_player.pos[0], -0.45],
+                      [[1, self.gc.controlled_player.pos[1]], [-1, self.gc.controlled_player.pos[1]]]]
+        boundaries = [(np.array(b), 4, 0.1) for b in boundaries]
+        landmarks = [(pos, -c, np.inf) for pos, c in self.landmarks]
+
         obstacle_points = defaultdict(float)
         for i in range(len(self.dir_actions)):
             action = self.dir_actions[i]
             direction = self.dir_xy[i]
 
-            for goal, c in [(self.opponent_penalty, -20), (self.own_goal, 20)]:
-                v = goal - self.gc.controlled_player.pos
+            for pos, c, max_dist in landmarks + opps + boundaries:
+                v = pos - self.gc.controlled_player.pos
                 dist = max(0.02, utils.length(v))
                 dir_sim = (utils.cosine_sim(v, direction) + 1) / 2
-                obstacle_points[action] += c*dir_sim / dist
-
-            for v in vectors:
-                dist = max(0.02, utils.length(v))
-                dir_sim = (utils.cosine_sim(v, direction) + 1)/2
-                obstacle_points[action] += dir_sim / dist
-
-            next_pos = np.abs(self.gc.controlled_player.pos + direction*0.1)
-            if next_pos[0] > 0.9 or next_pos[1] > 0.4:
-                obstacle_points[action] = np.inf
+                if dist < max_dist:
+                    obstacle_points[action] += c*dir_sim / dist
 
         dirs, points = list(obstacle_points.keys()), list(obstacle_points.values())
 
         return dirs[int(np.argmin(points))]
 
+    def _get_pos_score(self, pos):
+        pos_score = 0
+        for landmark, c in self.landmarks:
+            pos_score += c / max(0.02, utils.distance(pos, landmark))
+
+        for opp in self.gc.players[OPP_TEAM]:
+            dist = max(0.02, utils.distance(pos, opp.pos))
+            pos_score -= 1/dist
+
+        return pos_score
+
     def _get_best_pass_option(self):
-        scores = []
-        dist_to_opp_goal = max(0.02, utils.distance(self.gc.controlled_player.pos, self.opp_goal))
-        dist_to_own_goal = max(0.02, utils.distance(self.gc.controlled_player.pos, self.own_goal))
-        pos_score = dist_to_own_goal/dist_to_opp_goal
+        scores, pass_types = [], []
+        base_pos_score = self._get_pos_score(self.gc.controlled_player.pos)
         for player in self.gc.players[OWN_TEAM]:
             v = player.pos - self.gc.controlled_player.pos
             if np.sum(np.abs(v)) == 0 or player.offside:  # same player or offside
                 scores.append(-1)
+                pass_types.append(Action.HighPass)
                 continue
 
-            dist_to_opp_goal = max(0.02, utils.distance(player.pos, self.opp_goal))
-            dist_to_own_goal = max(0.02, utils.distance(player.pos, self.own_goal))
+            pos_score = self._get_pos_score(player.pos)
 
-            ps_rate = max(dist_to_own_goal/dist_to_opp_goal/pos_score - 1, 0)
-            looking_towards = max(utils.cosine_sim(self.gc.controlled_player.direction, v), 0)*2
+            pos_advantage = max(pos_score - base_pos_score, 0)
+            looking_towards = max(utils.cosine_sim(self.gc.controlled_player.direction, v), 0) + 1
             opp_in_between = 0
+
             for opp in self.gc.players[OPP_TEAM]:
                 if utils.between(opp.pos, player.pos, self.gc.controlled_player.pos, threshold=-0.5):
                     opp_in_between += 1
 
-            optimal_dist = 0.05 < utils.distance(self.gc.controlled_player.pos, player.pos) < 0.5
+            dist = utils.distance(self.gc.controlled_player.pos, player.pos)
+            optimal_dist = 0.05 < dist < 1.0
+            pass_convenience = 1/(1 + opp_in_between)
 
-            scores.append(ps_rate*looking_towards*optimal_dist*(opp_in_between == 0))
+            pass_type = Action.ShortPass
+            if dist > 0.25:
+                pass_type = Action.LongPass
+            if opp_in_between > 0:
+                pass_type = Action.HighPass
 
-        best_option = self.gc.players[OWN_TEAM][int(np.argmax(scores))]
-        best_score = np.max(scores)
-        best_option_dir = np.argmax([utils.cosine_sim(xy, best_option.pos - self.gc.controlled_player.pos)
-                                     for xy in self.dir_xy])
+            scores.append(pos_advantage*looking_towards*optimal_dist*pass_convenience)
+            pass_types.append(pass_type)
+
+        best_ind = int(np.argmax(scores))
+        best_option = self.gc.players[OWN_TEAM][best_ind]
+        best_score = scores[best_ind]
+        best_option_dir = np.argmax([utils.cosine_sim(self.dir_xy[ix], best_option.pos - self.gc.controlled_player.pos)
+                                     * self.pass_discounts[ix] for ix in range(len(self.dir_xy))])
         best_option_dir = self.dir_actions[int(best_option_dir)]
 
-        return best_option_dir, best_score
+        return best_option_dir, best_score, pass_types[best_ind]
 
     def defend(self):
         sprint_action = self._decide_sprint_defense()
@@ -199,10 +214,6 @@ class Agent:
         return dir_action
 
     def attack(self):
-        clear_action = self._decide_clear_ball()
-        if clear_action is not None:
-            return self.macro_list.add_macro(clear_action, True)
-
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
         dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
@@ -211,22 +222,17 @@ class Agent:
         angle = np.abs(self.gc.ball[-1] - self.opp_goal)
         if ((dist_to_goal < 0.3) or (dist_to_gk < 0.3)) and looking_towards_goal and angle[0] > angle[1]:
             if self.action_counter[Action.Shot] > 19:
-                return self.macro_list.add_macro([Action.ReleaseSprint] + [Action.Shot]*3, True)
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right] + [Action.Shot]*3, True)
 
-        obstacle_detected = self._get_closest(self.gc.controlled_player.pos +
-                                              7*self.gc.get_player_speed(), OPP_TEAM)[0] < 0.05
-        looking_forward = self.gc.controlled_player.direction[0] >= 0
-        forward_teammates = [player.offside for player in self.gc.players[OWN_TEAM]
-                             if utils.distance(player.pos, self.opp_goal) < dist_to_goal - 0.05]
-        any_offside = any(forward_teammates)
-        if obstacle_detected and looking_forward and len(forward_teammates) > 0 and not any_offside:
-            if self.action_counter[Action.LongPass] > 19:
-                return Action.LongPass
+        future_pos = self.gc.controlled_player.pos + 7*self.gc.get_player_speed()
+        obstacle_detected = self._get_closest(future_pos, OPP_TEAM)[0] < 0.05
+        if abs(future_pos[0]) > 0.9 or abs(future_pos[1]) > 0.4:
+            obstacle_detected = True
 
-        marked = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)[0] < 0.1
-        best_option_dir, best_score = self._get_best_pass_option()
-        if marked and best_score > 0.1 and self.action_counter[Action.ShortPass] > 9:
-            return self.macro_list.add_macro([best_option_dir, Action.ShortPass, best_option_dir], False)
+        best_option_dir, best_score, pass_type = self._get_best_pass_option()
+        if best_score > 50*(2-obstacle_detected) and self._check_pass_counter(9):
+            return self.macro_list.add_macro([best_option_dir, Action.ReleaseSprint, pass_type] +
+                                             [best_option_dir]*5, False)
 
         direction = self._decide_dir()
         sprint_action = self._decide_sprint_attack()
