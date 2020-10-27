@@ -11,6 +11,15 @@ class Player:
         self.direction = None
         self.tired = None
         self.offside = None
+        self.prev_pos = None
+
+    def get_speed(self):
+        if self.prev_pos is None:
+            return np.zeros(2)
+        return self.pos - self.prev_pos
+
+    def get_future_pos(self, steps):
+        return self.pos + steps * self.get_speed()
 
 
 def get_player_obs(obs, offside_safety=0.02):
@@ -21,6 +30,8 @@ def get_player_obs(obs, offside_safety=0.02):
 
         for i in range(len(obs[team_name])):
             player = Player(obs[f"{team_name}_roles"][i])
+            if player.pos:
+                player.prev_pos = np.array(player.pos)
             player.ball_owned = (i == obs["ball_owned_player"]) and ball_owned_team
             if team_name == "left_team" and obs["active"] == i:
                 player.active = True

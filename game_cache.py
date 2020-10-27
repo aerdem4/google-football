@@ -1,4 +1,5 @@
 import numpy as np
+from kaggle_environments.envs.football.helpers import GameMode
 from player import get_player_obs
 
 
@@ -39,7 +40,11 @@ class GameCache:
         self.controlled_player = teammates[obs['active']]
         self.controlled_player_pos.append(self.controlled_player.pos)
 
-        self.attacking.append(self.controlled_player.ball_owned)
+        attacking = (self.ball[-1][0] > 0 and self.current_obs["game_mode"] in
+                     {GameMode.FreeKick, GameMode.Penalty, GameMode.Corner, GameMode.ThrowIn})
+        attacking = attacking or self.controlled_player.ball_owned
+
+        self.attacking.append(attacking)
         if self.attacking[-1]:
             if self.time_since_ball == 0:  # gained the ball
                 self.controlled_player_pos = []
