@@ -1,7 +1,7 @@
 from collections import defaultdict
 import numpy as np
 from kaggle_environments.envs.football.helpers import Action, PlayerRole, GameMode
-from game_cache import GameCache
+from game_cache import GameCache, PassCache
 import utils
 from macros import MacroList
 
@@ -13,6 +13,7 @@ OWN_TEAM = "left_team"
 class Agent:
     def __init__(self):
         self.gc = GameCache()
+        self.pass_cache = PassCache(self.gc)
         self.opp_goal = np.array([1.0, 0])
         self.opponent_penalty = np.array([0.85, 0])
         self.own_goal = np.array([-1.0, 0])
@@ -21,10 +22,10 @@ class Agent:
                             Action.Left, Action.TopLeft, Action.Top, Action.TopRight]
         self.dir_xy = np.array([[1, 0], [1, 1], [0, 1], [-1, 1],
                                 [-1, 0], [-1, -1], [0, -1], [1, -1]])
-        self.pass_discounts = [1.0, 1.0, 1.0, 0.75, 0.5, 0.75, 1.0, 1.0]
+        self.pass_multipliers = [1.5, 1.25, 1.0, 0.75, 0.5, 0.75, 1.0, 1.25]
         self.macro_list = MacroList(self.gc)
         self.action_counter = defaultdict(lambda: 99)
-        self.landmarks = [(self.own_goal, -1.0), (self.opponent_penalty, 1.0)]
+        self.landmarks = [(self.own_goal, -1.0, False), (self.opp_goal, 2.0, True)]
 
     def _check_pass_counter(self, delay):
         return all([self.action_counter[action] > delay
@@ -94,7 +95,7 @@ class Agent:
         return None
 
     def _decide_dir(self):
-        landmarks = [(pos, -c, np.inf) for pos, c in self.landmarks]
+        landmarks = [(pos, -c, angle_matters, np.inf) for pos, c, angle_matters in self.landmarks]
         base_pos = self.gc.controlled_player.get_future_pos(0)
         obstacle_points = defaultdict(float)
 
@@ -103,13 +104,18 @@ class Agent:
             direction = self.dir_xy[i]
 
             for steps in [0, 7]:
-                opps = [(opp.get_future_pos(steps), 0.01, 0.3) for opp in self.gc.players[OPP_TEAM]]
-                for pos, c, max_dist in landmarks + opps:
+                opps = [(opp.get_future_pos(steps), 0.01, False, 0.3) for opp in self.gc.players[OPP_TEAM]]
+                for pos, c, angle_matters, max_dist in landmarks + opps:
                     v = pos - base_pos
-                    dist = max(0.02, utils.length(v))
+                    dist = max(0.04, utils.length(v))
                     dir_sim = (utils.cosine_sim(v, direction) + 1) / 2
+
+                    angle_multiplier = 1
+                    if angle_matters:
+                        angle_multiplier = max(0, utils.cosine_sim(v, pos))
+
                     if dist < max_dist:
-                        obstacle_points[action] += c*dir_sim / (dist**2)
+                        obstacle_points[action] += angle_multiplier * c*dir_sim / (dist**2)
 
             next_pos = np.abs(base_pos + direction*0.1)
             if next_pos[0] > 0.9 or next_pos[1] > 0.4:
@@ -121,12 +127,15 @@ class Agent:
 
     def _get_pos_score(self, pos, steps):
         pos_score = 0
-        for landmark, c in self.landmarks:
-            dist = max(0.02, utils.distance(pos, landmark))
-            pos_score += c / dist / dist
+        for landmark, c, angle_matters in self.landmarks:
+            dist = max(0.04, utils.distance(pos, landmark))
+            angle_multiplier = 1
+            if angle_matters:
+                angle_multiplier = max(0, utils.cosine_sim(landmark - pos, landmark))
+            pos_score += angle_multiplier * c / dist / dist
 
         for opp in self.gc.players[OPP_TEAM]:
-            dist = max(0.02, utils.distance(pos, opp.get_future_pos(steps)))
+            dist = max(0.04, utils.distance(pos, opp.get_future_pos(steps)))
             pos_score -= 0.01/dist/dist
 
         return pos_score
@@ -162,6 +171,9 @@ class Agent:
             pass_type = Action.ShortPass
             if dist > 0.25:
                 pass_type = Action.LongPass
+            if dist > 0.5:
+                pass_convenience = 1.0
+                pass_type = Action.HighPass
             if opp_in_between > 0:
                 pass_type = Action.HighPass
 
@@ -172,7 +184,7 @@ class Agent:
         best_option = self.gc.players[OWN_TEAM][best_ind]
         best_score = scores[best_ind]
         best_option_dir = np.argmax([utils.cosine_sim(self.dir_xy[ix], best_option.get_future_pos(steps) - base_pos)
-                                     * self.pass_discounts[ix] for ix in range(len(self.dir_xy))])
+                                     * self.pass_multipliers[ix] for ix in range(len(self.dir_xy))])
         best_option_dir = self.dir_actions[int(best_option_dir)]
 
         return best_option_dir, best_score, pass_types[best_ind]
@@ -201,8 +213,8 @@ class Agent:
                 teammates_available = sum([utils.distance(p.pos, between_point) + 0.02 < dist_to_intercept
                                            for p in teammates])
 
-                if teammates_available > 1 and dist_to_ball > 0.1:
-                    return Action.ReleaseDirection
+                if teammates_available > 1 and self.gc.ball[-1][0] - self.gc.controlled_player.pos[0] < -0.05:
+                    return Action.Right
 
                 action = self._run_towards(self.gc.controlled_player.pos, between_point)
                 if action in self.gc.sticky_actions:
@@ -216,11 +228,14 @@ class Agent:
         return dir_action
 
     def attack(self):
-        if self.gc.current_obs["game_mode"] == GameMode.Corner and self.gc.neutral_ball:
+        if self.gc.current_obs["game_mode"] in {GameMode.Corner, GameMode.ThrowIn} and self.gc.neutral_ball:
             if self.gc.ball[-1][1] > 0:
                 return self.macro_list.add_macro([Action.Top, Action.HighPass], True)
             else:
                 return self.macro_list.add_macro([Action.Bottom, Action.HighPass], True)
+
+        if self.gc.current_obs["game_mode"] == GameMode.Penalty:
+            return self.macro_list.add_macro([Action.Right, Action.Shot], True)
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
@@ -245,8 +260,8 @@ class Agent:
 
         best_option_dir, best_score, pass_type = self._get_best_pass_option()
         if best_score > 40*(1-obstacle_detected) + 20 and self._check_pass_counter(9):
-            return self.macro_list.add_macro([best_option_dir, Action.ReleaseSprint, pass_type] +
-                                             [best_option_dir]*3, False)
+            self.pass_cache.register_pass(best_option_dir, pass_type)
+            return self.macro_list.add_macro([best_option_dir, Action.ReleaseSprint, pass_type], False)
 
         direction = self._decide_dir()
         sprint_action = self._decide_sprint_attack()
@@ -259,6 +274,8 @@ class Agent:
         self.gc.update(obs)
 
         action = self.macro_list.step()
+        if action is None:
+            action = self.pass_cache.step()
         if action is None:
             if self.gc.attacking[-1]:
                 action = self.attack()
