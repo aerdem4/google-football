@@ -270,7 +270,6 @@ class Agent:
         return direction
 
     def act(self, obs):
-        #try:
         self.gc.update(obs)
 
         action = self.macro_list.step()
@@ -286,5 +285,3 @@ class Agent:
             self.action_counter[k] += 1
         self.action_counter[action] = 0
         return action
-        #except:
-        #    return Action.Shot
