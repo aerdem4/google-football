@@ -29,7 +29,7 @@ class GameCache:
         self.players = get_player_obs(obs)
 
         self.ball.append(np.array(obs["ball"][:2]))
-        self.ball_height.append(np.array(obs["ball"][2]))
+        self.ball_height.append(np.array(obs["ball"][2]/10))
 
         teammates = self.players["left_team"]
         # TODO: check jersey number instead
