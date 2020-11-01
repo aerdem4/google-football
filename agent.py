@@ -111,7 +111,7 @@ class Agent:
         if Action.Sprint in self.gc.sticky_actions and ball_coming and self.gc.neutral_ball:
             return Action.ReleaseSprint
 
-        time_projection = 7
+        time_projection = 4
         dir_action = self._run_towards(self.gc.controlled_player.pos,
                                        self.gc.ball[-1] + time_projection * self.gc.get_ball_speed())
         if not self.gc.neutral_ball:
@@ -119,7 +119,8 @@ class Agent:
             if direction:
                 return self.macro_list.add_macro([direction, Action.Slide], True)
 
-            if not utils.between(self.gc.controlled_player.pos, self.own_goal, self.gc.ball[-1], threshold=-0.5):
+            between = utils.between(self.gc.controlled_player.pos, self.own_goal, self.gc.ball[-1], threshold=-0.5)
+            if (not between) and (utils.distance(self.gc.ball[-1], self.own_goal) > 0.3):
                 between_point = (3*np.array(self.gc.ball[-1]) + np.array(self.own_goal))/4
                 action = self._run_towards(self.gc.controlled_player.pos, between_point)
                 if action in self.gc.sticky_actions:
