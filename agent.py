@@ -73,11 +73,14 @@ class Agent:
 
     def _decide_clear_ball(self):
         dist = utils.distance(self.own_goal, self.gc.ball[-1])
-        danger_zone = dist < 0.5
+        danger_zone = dist < 0.7
         if not danger_zone and not self._last_man_standing():
             return None
 
-        if self.gc.controlled_player.direction[0] > 0 and self.action_counter[Action.HighPass] > 9:
+        if self.gc.ball[-1][0] < -0.7:
+            if self.action_counter[Action.Shot] > 9:
+                return Action.Shot
+        elif self.gc.controlled_player.direction[0] > 0 and self.action_counter[Action.HighPass] > 9:
             return Action.HighPass
 
         closest_opp_dist, closest_opp = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
