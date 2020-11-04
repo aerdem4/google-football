@@ -101,6 +101,10 @@ class Agent:
         return None
 
     def defend(self):
+        if (self.gc.ball[-1][0] > 0) and (self.gc.controlled_player.pos[0] < 0) and (self.gc.ball_height[-1] > 1):
+            return self.macro_list.add_macro([Action.Sprint,
+                                              self._run_towards(self.gc.controlled_player.pos, self.own_goal)], False)
+
         ball_coming = False
         ball_dist_now = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
         if len(self.gc.ball) > 1:
@@ -148,6 +152,14 @@ class Agent:
         if clear_action is not None:
             return clear_action
 
+        if self.gc.controlled_player.pos[0] > 0.75:
+            if self.gc.controlled_player.pos[1] > 0.2:
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.HighPass] +
+                                                 [Action.Top]*3 + [Action.Shot], False)
+            elif self.gc.controlled_player.pos[1] < -0.2:
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.HighPass] +
+                                                 [Action.Bottom] * 3 + [Action.Shot], False)
+
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
         dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
@@ -174,7 +186,9 @@ class Agent:
             if self.gc.controlled_player.direction[0] < 0:
                 return Action.ShortPass
 
-        return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty)
+        if self.gc.controlled_player.pos[0] < 0.7:
+            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty)
+        return self._run_towards(self.gc.controlled_player.pos, self.opp_goal)
 
     def act(self, obs):
         self.gc.update(obs)
