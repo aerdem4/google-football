@@ -66,7 +66,7 @@ class Agent:
 
         safe = (not self.gc.controlled_player.yellow) or self.gc.time > 2800
 
-        if safe and closest_opp_dist < 0.01 and opp_between and (-0.2 > closest_opp.pos[0] > -0.8):
+        if safe and closest_opp_dist < 0.01 and opp_between and (-0.2 > self.gc.controlled_player.pos[0] > -0.75):
             return self._run_towards(self.gc.controlled_player.pos, closest_opp.pos)
 
         return None
@@ -117,20 +117,39 @@ class Agent:
 
         return min_dist < 0.05
 
-    def defend(self):
-        ball_coming = False
-        ball_dist_now = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
-        if len(self.gc.ball) > 1:
-            ball_dist_prev = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-2])
-            ball_coming = 0.1 < ball_dist_now < ball_dist_prev
-        if Action.Sprint not in self.gc.sticky_actions and not ball_coming:
-            return Action.Sprint
-        if Action.Sprint in self.gc.sticky_actions and ball_coming and self.gc.neutral_ball:
-            return Action.ReleaseSprint
+    def _decide_sprint(self):
+        desired_dir = list(set(self.gc.sticky_actions).intersection(self.dir_actions))
+        if len(desired_dir) == 1:
+            desired_dir = desired_dir[0]
+            which = np.argmax([desired_dir == d for d in self.dir_actions])
+            on_dir = utils.cosine_sim(self.gc.controlled_player.direction, self.dir_xy[which]) > 0.2
+            if not on_dir and Action.Sprint in self.gc.sticky_actions:
+                return Action.ReleaseSprint
+            if on_dir and Action.Sprint not in self.gc.sticky_actions:
+                return Action.Sprint
+        return None
 
-        time_projection = 4
-        dir_action = self._run_towards(self.gc.controlled_player.pos,
-                                       self.gc.ball[-1] + time_projection * self.gc.get_ball_speed())
+    def defend(self):
+        sprint_action = self._decide_sprint()
+        if sprint_action is not None:
+            return sprint_action
+
+        dist_to_ball = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
+        if self.gc.neutral_ball:
+            dist_to_ball += self.gc.ball_height[-1]/10
+            ball_future = self.gc.ball[-1] + (dist_to_ball/0.01)*self.gc.get_ball_speed()
+        else:
+            steps = dist_to_ball/0.01
+            if steps <= 4:
+                ball_future = self.gc.ball[-1] + steps * self.gc.get_ball_speed()
+            else:
+                ball_future = self.gc.ball[-1] + 4 * self.gc.get_ball_speed()
+                direction = self.own_goal - ball_future
+                direction /= utils.length(direction)
+                ball_future += 0.01*direction*(steps-4)
+
+        dir_action = self._run_towards(self.gc.controlled_player.pos, ball_future)
+
         if not self.gc.neutral_ball:
             direction = self._tactic_foul()
             if direction:
@@ -151,15 +170,9 @@ class Agent:
         if self.gc.current_obs["game_mode"] == GameMode.Penalty:
             return self.macro_list.add_macro([Action.Right, Action.Shot], True)
 
-        desired_dir = list(set(self.gc.sticky_actions).intersection(self.dir_actions))
-        if len(desired_dir) == 1:
-            desired_dir = desired_dir[0]
-            which = np.argmax([desired_dir == d for d in self.dir_actions])
-            on_dir = utils.cosine_sim(self.gc.controlled_player.direction, self.dir_xy[which]) > 0.2
-            if not on_dir and Action.Sprint in self.gc.sticky_actions:
-                return Action.ReleaseSprint
-            if on_dir and Action.Sprint not in self.gc.sticky_actions:
-                return Action.Sprint
+        sprint_action = self._decide_sprint()
+        if sprint_action is not None:
+            return sprint_action
 
         clear_action = self._decide_clear_ball()
         if clear_action is not None:
