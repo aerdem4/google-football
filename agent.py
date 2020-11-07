@@ -67,7 +67,7 @@ class Agent:
 
         safe = (not self.gc.controlled_player.yellow) or self.gc.time > 2800
 
-        if safe and closest_opp_dist < 0.01 and opp_between and (-0.2 > self.gc.controlled_player.pos[0] > -0.75):
+        if safe and closest_opp_dist < 0.01 and opp_between and (-0.2 > self.gc.controlled_player.pos[0] > -0.7):
             return self._run_towards(self.gc.controlled_player.pos, closest_opp.pos)
 
         return None
@@ -123,14 +123,24 @@ class Agent:
             return sprint_action
 
         if self.gc.neutral_ball:
-            dist_to_ball += self.gc.ball_height[-1]/10
-            ball_future = self.gc.ball[-1] + (dist_to_ball/0.01)*self.gc.get_ball_speed()
+            ball_speed = self.gc.get_ball_speed()
+            ball_future = self.gc.ball[-1]
+            for t in range(1, 21):
+                ball_future = self.gc.ball[-1] + t*ball_speed
+                if self.gc.ball_height[-1] < 0.5:
+                    ball_speed = 0.9*ball_speed
+
+                dist = utils.distance(ball_future, self.gc.controlled_player.pos)
+                if dist / t < 0.01:
+                    break
+
         else:
+            ball_speed = self.gc.get_ball_speed()
             steps = dist_to_ball/0.01
             if steps <= 4:
-                ball_future = self.gc.ball[-1] + steps * self.gc.get_ball_speed()
+                ball_future = self.gc.ball[-1] + steps * ball_speed
             else:
-                ball_future = self.gc.ball[-1] + 4 * self.gc.get_ball_speed()
+                ball_future = self.gc.ball[-1] + 4 * ball_speed
                 direction = self.own_goal - ball_future
                 direction /= utils.length(direction)
                 ball_future += 0.01*direction*(steps-4)
@@ -141,15 +151,6 @@ class Agent:
             direction = self._tactic_foul()
             if direction:
                 return self.macro_list.add_macro([direction, Action.Slide], True)
-
-            between = utils.between(self.gc.controlled_player.pos, self.own_goal, self.gc.ball[-1], threshold=-0.5)
-            if (not between) and (utils.distance(self.gc.ball[-1], self.own_goal) > 0.3):
-                between_point = (3*np.array(self.gc.ball[-1]) + np.array(self.own_goal))/4
-                action = self._run_towards(self.gc.controlled_player.pos, between_point)
-                if action in self.gc.sticky_actions:
-                    return Action.Idle
-                else:
-                    return action
 
         return dir_action
 
@@ -172,7 +173,7 @@ class Agent:
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
         dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
         looking_towards_goal = utils.cosine_sim(self.opp_goal - self.gc.controlled_player.pos,
-                                                self.gc.controlled_player.direction) > 0.5
+                                                self.gc.controlled_player.direction) > 0.8
         if ((dist_to_goal < 0.3) or (dist_to_gk < 0.3)) and looking_towards_goal:
             if self.action_counter[Action.Shot] > 9:
                 last_move = Action.Right
@@ -207,17 +208,14 @@ class Agent:
             opp_between = utils.between(closest_opp.pos, self.gc.controlled_player.pos, self.opponent_penalty, -0.5)
             if opp_between and closest_opp_dist < 0.06:
                 direction = self.gc.controlled_player.pos - closest_opp.pos
-                direction /= utils.length(direction)
-                current_dir = self.gc.controlled_player.direction / utils.length(self.gc.controlled_player.direction)
-                direction += current_dir
+                direction[0] = 0
+                current_dir = self.gc.controlled_player.direction
+                if utils.cosine_sim(direction, current_dir) < -0.3:
+                    return Action.Left
                 if direction[1] > 0:
                     return Action.Bottom
                 else:
                     return Action.Top
-
-        if self.gc.time_since_ball == 5:
-            if self.gc.controlled_player.direction[0] < 0:
-                return Action.ShortPass
 
         if self.gc.controlled_player.pos[0] < 0.7:
             return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty)
