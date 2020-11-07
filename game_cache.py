@@ -67,21 +67,21 @@ class GameCache:
         return self._get_speed(self.controlled_player_pos)
 
 
-class PassCache:
+class DirCache:
     def __init__(self, gc):
-        self.passing = False
-        self.dir, self.type = None, None
+        self.active = False
+        self.dir = None
         self.time = 0
         self.gc = gc
 
-    def register_pass(self, dir, type):
-        self.dir, self.type = dir, type
+    def register(self, dir):
+        self.dir = dir
         self.time = self.gc.time
-        self.passing = True
+        self.active = True
 
     def step(self):
-        if self.gc.controlled_player.ball_owned and self.passing and self.gc.time < self.time + 10:
+        if self.gc.controlled_player.ball_owned and self.active and self.gc.time < self.time + 10:
             return self.dir
         else:
-            self.passing = False
+            self.active = False
             return None
