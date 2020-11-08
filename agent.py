@@ -112,26 +112,31 @@ class Agent:
         return None
 
     def defend(self):
+        if Action.Sprint not in self.gc.sticky_actions:
+            return Action.Sprint
+
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
             direction = self._run_towards(self.gc.controlled_player.pos, self.gc.ball[-1])
-            return self.macro_list.add_macro([Action.Sprint, direction], False)
+            return direction
 
         dist_to_ball = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
-
-        sprint_action = self._decide_sprint()
-        if sprint_action is not None:
-            return sprint_action
 
         if self.gc.neutral_ball:
             ball_speed = self.gc.get_ball_speed()
             ball_future = self.gc.ball[-1]
+
+            ball_z = self.gc.ball_height[-1]
+            z_speed = 0
+            if len(self.gc.ball_height) > 1:
+                z_speed = self.gc.ball_height[-1] - self.gc.ball_height[-2]
+
             for t in range(1, 21):
                 ball_future = self.gc.ball[-1] + t*ball_speed
                 if self.gc.ball_height[-1] < 0.5:
                     ball_speed = 0.9*ball_speed
 
                 dist = utils.distance(ball_future, self.gc.controlled_player.pos)
-                if dist / t < 0.01:
+                if (dist / t < 0.01) and (ball_z + z_speed*t - 0.1*t*t <= 0):
                     break
 
         else:
@@ -159,15 +164,15 @@ class Agent:
             return self.macro_list.add_macro([Action.Right, Action.Shot], True)
 
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
-            return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right, Action.HighPass], True)
+            return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right] + [Action.HighPass]*3, True)
 
         if self.gc.controlled_player.pos[0] > 0.75:
             if self.gc.controlled_player.pos[1] > 0.2:
-                return self.macro_list.add_macro([Action.ReleaseSprint, Action.HighPass] +
-                                                 [Action.Top]*3, False)
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.Top] + [Action.HighPass]*3 +
+                                                 [Action.Top]*2, False)
             elif self.gc.controlled_player.pos[1] < -0.2:
-                return self.macro_list.add_macro([Action.ReleaseSprint, Action.HighPass] +
-                                                 [Action.Bottom] * 3, False)
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.Bottom] + [Action.HighPass]*3 +
+                                                 [Action.Bottom]*2, False)
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
@@ -203,7 +208,7 @@ class Agent:
                 if self.gc.controlled_player.pos[0] < -0.2:
                     action = Action.HighPass
                 if self.action_counter[action] > 9:
-                    return action
+                    return self.macro_list.add_macro([action]*3, False)
         else:
             closest_opp_dist, closest_opp = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
 
