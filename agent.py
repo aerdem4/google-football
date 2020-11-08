@@ -82,18 +82,18 @@ class Agent:
             return Action.Shot
         return None
 
-    def _decide_passing(self):
-        dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
-        future_pos = self.gc.controlled_player.pos + 3*self.gc.get_player_speed()
+    def _detect_obstacle(self, player):
+        dist_to_goal = utils.distance(player.pos, self.opp_goal)
+        future_pos = player.get_future_pos(3)
         future_dir = self.opponent_penalty - future_pos
         future_dir /= utils.length(future_dir)
         future_pos += 4*0.01*future_dir
-        direction = (future_pos - self.gc.controlled_player.pos)/7
+        direction = (future_pos - player.pos)/7
 
         min_dist = np.inf
         for i in range(4, 8):
-            dist, opp = self._get_closest(self.gc.controlled_player.pos + i*direction, OPP_TEAM, steps=i)
-            opp_dist_to_goal = utils.distance(opp.pos, self.opp_goal)
+            dist, opp = self._get_closest(player.pos + i*direction, OPP_TEAM, steps=i)
+            opp_dist_to_goal = utils.distance(opp.get_future_pos(i), self.opp_goal)
             if dist < min_dist and dist_to_goal > opp_dist_to_goal:
                 min_dist = dist
 
@@ -193,10 +193,12 @@ class Agent:
         looking_forward = self.gc.controlled_player.direction[0] > 0
 
         if looking_forward:
-            forward_teammates = [player.offside for player in self.gc.players[OWN_TEAM]
-                                 if utils.distance(player.pos, self.opp_goal) < dist_to_goal]
-            any_offside = any(forward_teammates)
-            if self._decide_passing() and len(forward_teammates) > 0 and not any_offside:
+            forward_teammates = [player for player in self.gc.players[OWN_TEAM]
+                                 if (utils.distance(player.pos, self.opp_goal) < dist_to_goal + 0.05) and
+                                    (utils.distance(player.pos, self.opp_goal) != dist_to_goal)]
+            offside = any([p.offside for p in forward_teammates])
+            forward_teammates = [p for p in forward_teammates if (not self._detect_obstacle(p)) and (not p.offside)]
+            if self._detect_obstacle(self.gc.controlled_player) and len(forward_teammates) > 0 and not offside:
                 action = Action.LongPass
                 if self.gc.controlled_player.pos[0] < -0.2:
                     action = Action.HighPass
