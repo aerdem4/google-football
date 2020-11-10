@@ -19,14 +19,24 @@ class Agent:
         self.own_penalty = np.array([-0.85, 0])
         self.dir_actions = [Action.Right, Action.BottomRight, Action.Bottom, Action.BottomLeft,
                             Action.Left, Action.TopLeft, Action.Top, Action.TopRight]
-        self.dir_xy = np.array([[1, 0], [1, -1], [0, -1], [-1, -1],
-                                [-1, 0], [-1, 1], [0, 1], [1, 1]])
+        self.dir_xy = np.array([[1, 0], [1, 1], [0, 1], [-1, 1],
+                                [-1, 0], [-1, -1], [0, -1], [1, -1]], dtype=np.float32)
+        for i in range(len(self.dir_xy)):
+            self.dir_xy[i] = self.dir_xy[i] / utils.length(self.dir_xy[i])
         self.macro_list = MacroList(self.gc)
         self.action_counter = defaultdict(lambda: 99)
         self.dir_cache = DirCache(self.gc)
 
-    def _run_towards(self, source, target):
-        which_dir = int(((utils.angle([source[0], source[1]], [target[0], target[1]]) + 22.5) % 360) // 45)
+    def _run_towards(self, source, target, obstacle=0.0):
+        v = target - source
+        dir_score = np.zeros(len(self.dir_actions))
+        for i in range(len(self.dir_actions)):
+            dir_score[i] = utils.cosine_sim(v, self.dir_xy[i])
+            if obstacle > 0:
+                future_loc = source + self.dir_xy[i]*0.1
+                if abs(future_loc[0]) > 0.95 or abs(future_loc[1]) > 0.4:
+                    dir_score[i] = -np.inf
+        which_dir = int(np.argmax(dir_score))
         return self.dir_actions[which_dir]
 
     def _get_opponent_by_role(self, role):
@@ -104,7 +114,7 @@ class Agent:
         if len(desired_dir) == 1:
             desired_dir = desired_dir[0]
             which = np.argmax([desired_dir == d for d in self.dir_actions])
-            on_dir = utils.cosine_sim(self.gc.controlled_player.direction, self.dir_xy[which]) > 0.2
+            on_dir = utils.cosine_sim(self.gc.controlled_player.direction, self.dir_xy[which]) > 0.5
             if not on_dir and Action.Sprint in self.gc.sticky_actions:
                 return Action.ReleaseSprint
             if on_dir and Action.Sprint not in self.gc.sticky_actions:
@@ -217,7 +227,7 @@ class Agent:
                 direction = self.gc.controlled_player.pos - closest_opp.pos
                 direction[0] = 0
                 current_dir = self.gc.controlled_player.direction
-                if utils.cosine_sim(direction, current_dir) < -0.3:
+                if utils.cosine_sim(direction, current_dir) < -0.3 and self.gc.controlled_player.pos[0] > -0.85:
                     return Action.Left
                 if direction[1] > 0:
                     return Action.Bottom
@@ -225,8 +235,8 @@ class Agent:
                     return Action.Top
 
         if self.gc.controlled_player.pos[0] < 0.7:
-            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty)
-        return self._run_towards(self.gc.controlled_player.pos, self.opp_goal)
+            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, obstacle=1.0)
+        return self._run_towards(self.gc.controlled_player.pos, self.opp_goal, obstacle=1.0)
 
     def act(self, obs):
         self.gc.update(obs)
