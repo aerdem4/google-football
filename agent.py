@@ -27,12 +27,19 @@ class Agent:
         self.action_counter = defaultdict(lambda: 99)
         self.dir_cache = DirCache(self.gc)
 
-    def _run_towards(self, source, target, obstacle=0.0):
+    def _run_towards(self, source, target, c=0.0):
         v = target - source
         dir_score = np.zeros(len(self.dir_actions))
+        obstacles = [p.pos for p in self.gc.players[OPP_TEAM]
+                     if utils.distance(p.pos, source) < 0.1]
+
         for i in range(len(self.dir_actions)):
             dir_score[i] = utils.cosine_sim(v, self.dir_xy[i])
-            if obstacle > 0:
+            if c > 0:
+                for obs in obstacles:
+                    avoidance = max(0, utils.cosine_sim(obs - source, self.dir_xy[i]))**2
+                    dir_score[i] -= c*avoidance
+
                 future_loc = source + self.dir_xy[i]*0.1
                 if abs(future_loc[0]) > 0.95 or abs(future_loc[1]) > 0.4:
                     dir_score[i] = -np.inf
@@ -235,8 +242,8 @@ class Agent:
                     return Action.Top
 
         if self.gc.controlled_player.pos[0] < 0.7:
-            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, obstacle=1.0)
-        return self._run_towards(self.gc.controlled_player.pos, self.opp_goal, obstacle=1.0)
+            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, c=1.0)
+        return self._run_towards(self.gc.controlled_player.pos, self.opp_goal, c=1.0)
 
     def act(self, obs):
         self.gc.update(obs)
