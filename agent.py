@@ -140,7 +140,8 @@ class Agent:
         if self.gc.neutral_ball:
             dist1 = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
             dist2 = utils.distance(self.gc.controlled_player.pos, self.own_goal)
-            if (dist1 < 0.3 or dist2 < 0.3) and self.action_counter[Action.Shot] > 9:
+            closest_opp_dist, _ = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
+            if (dist1 < 0.2 or (dist2 < 0.3 and closest_opp_dist < 0.15)) and self.action_counter[Action.Shot] > 9:
                 return Action.Shot
 
         if Action.Sprint not in self.gc.sticky_actions:
@@ -199,9 +200,6 @@ class Agent:
         return dir_action
 
     def attack(self):
-        if self.gc.current_obs["game_mode"] == GameMode.Penalty:
-            return self.macro_list.add_macro([Action.Right, Action.Shot], True)
-
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
             return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right] + [Action.HighPass]*3, True)
 
@@ -222,7 +220,9 @@ class Agent:
             if self.action_counter[Action.Shot] > 9:
                 last_move = Action.Right
                 if Action.Right in self.gc.sticky_actions:
-                    last_move = Action.TopRight
+                    last_move = Action.BottomRight
+                    if self.gc.controlled_player.pos[1] > 0:
+                        last_move = Action.TopRight
                 self.dir_cache.register(last_move)
                 return self.macro_list.add_macro([Action.ReleaseSprint, last_move] + [Action.Shot]*3, True)
 
@@ -267,6 +267,37 @@ class Agent:
             return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, c=1.0)
         return self._run_towards(self.gc.controlled_player.pos, self.opp_goal, c=1.0)
 
+    def game_mode_act(self):
+        if self.gc.current_obs["game_mode"] == GameMode.Penalty:
+            which = int(np.random.randint(3))
+            directions = [Action.Right, Action.TopRight, Action.TopLeft]
+            return self.macro_list.add_macro([directions[which], Action.Shot], False)
+
+        if self.gc.current_obs["game_mode"] == GameMode.Corner:
+            if self.gc.ball[-1][0] > 0:
+                if self.gc.ball[-1][1] > 0:
+                    return self.macro_list.add_macro([Action.TopRight, Action.HighPass], False)
+                else:
+                    return self.macro_list.add_macro([Action.BottomRight, Action.HighPass], False)
+            else:
+                return Action.Shot
+
+        if self.gc.current_obs["game_mode"] == GameMode.ThrowIn:
+            return self.macro_list.add_macro([Action.Right, Action.HighPass], False)
+
+        if self.gc.current_obs["game_mode"] == GameMode.GoalKick:
+            if self.gc.ball[-1][0] < 0:
+                return self.macro_list.add_macro([Action.BottomRight, Action.ShortPass], False)
+            else:
+                return self._run_towards(self.gc.controlled_player.pos, np.array([0.5, 0.1]))
+
+        if self.gc.current_obs["game_mode"] == GameMode.FreeKick:
+            direction = self._run_towards(self.gc.controlled_player.pos, self.opp_goal)
+            action = Action.HighPass
+            if utils.distance(self.gc.controlled_player.pos, self.opp_goal) < 0.4:
+                action = Action.Shot
+            return self.macro_list.add_macro([direction, action], False)
+
     def act(self, obs):
         self.gc.update(obs)
 
@@ -274,10 +305,9 @@ class Agent:
         if action is None:
             action = self.dir_cache.step()
         if action is None:
-            if self.gc.neutral_ball:
-                if self.gc.current_obs["game_mode"] == GameMode.Corner:
-                    return Action.HighPass
+            action = self.game_mode_act()
 
+        if action is None:
             if self.gc.attacking[-1]:
                 action = self.attack()
             else:
