@@ -129,7 +129,7 @@ class Agent:
         if len(desired_dir) == 1:
             desired_dir = desired_dir[0]
             which = np.argmax([desired_dir == d for d in self.dir_actions])
-            on_dir = utils.cosine_sim(self.gc.controlled_player.direction, self.dir_xy[which]) > 0.5
+            on_dir = utils.cosine_sim(self.gc.controlled_player.direction, self.dir_xy[which]) > 0.65
             if not on_dir and Action.Sprint in self.gc.sticky_actions:
                 return Action.ReleaseSprint
             if on_dir and Action.Sprint not in self.gc.sticky_actions:
@@ -144,7 +144,16 @@ class Agent:
             if (dist1 < 0.2 or (dist2 < 0.3 and closest_opp_dist < 0.15)) and self.action_counter[Action.Shot] > 9:
                 return Action.Shot
 
-        if Action.Sprint not in self.gc.sticky_actions:
+        ball_coming = False
+        ball_dist_now = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-1])
+        if len(self.gc.ball) > 1:
+            ball_dist_prev = utils.distance(self.gc.controlled_player.pos, self.gc.ball[-2])
+            ball_coming = ball_dist_now < ball_dist_prev < 0.1
+
+        if ball_coming and self.gc.neutral_ball:
+            if Action.Sprint in self.gc.sticky_actions:
+                return Action.ReleaseSprint
+        elif Action.Sprint not in self.gc.sticky_actions:
             return Action.Sprint
 
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
@@ -171,24 +180,15 @@ class Agent:
 
         else:
             ball_speed = self.gc.get_ball_speed()
-            ball_future = self.gc.ball[-1]
-            intercepted = False
-            for t in range(1, 5):
-                ball_future = ball_future + ball_speed
+            ball_future = self.gc.ball[-1] + 3*ball_speed
+
+            direction = self.own_goal - ball_future
+            direction /= utils.length(direction)
+            for t in range(4, 21):
+                ball_future = ball_future + 0.008*direction
                 dist = utils.distance(ball_future, self.gc.controlled_player.pos)
                 if dist / t < 0.01:
-                    intercepted = True
                     break
-
-            if not intercepted:
-                direction = self.own_goal - ball_future
-                direction /= utils.length(direction)
-                for t in range(5, 21):
-                    ball_future = ball_future + 0.008*direction
-                    dist = utils.distance(ball_future, self.gc.controlled_player.pos)
-                    if dist / t < 0.01:
-                        # intercepted = True
-                        break
 
         dir_action = self._run_towards(self.gc.controlled_player.pos, ball_future)
 
@@ -251,7 +251,7 @@ class Agent:
         else:
             closest_opp_dist, closest_opp = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
 
-            opp_between = utils.between(closest_opp.pos, self.gc.controlled_player.pos, self.opponent_penalty, -0.5)
+            opp_between = utils.between(closest_opp.pos, self.gc.controlled_player.pos, self.opponent_penalty, -0.2)
             if opp_between and closest_opp_dist < 0.06:
                 direction = self.gc.controlled_player.pos - closest_opp.pos
                 direction[0] = 0
