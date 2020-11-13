@@ -1,5 +1,5 @@
 import numpy as np
-from kaggle_environments.envs.football.helpers import GameMode
+from kaggle_environments.envs.football.helpers import GameMode, PlayerRole
 from player import get_player_obs
 
 
@@ -17,6 +17,7 @@ class GameCache:
         self.players = None
         self.sticky_actions = []
         self.time_since_controlling = 0
+        self.own_gk_ball = False
 
     def _get_speed(self, obj_array):
         if len(obj_array) < 2:
@@ -57,6 +58,9 @@ class GameCache:
         self.neutral_ball = False
         if obs['ball_owned_team'] == -1:
             self.neutral_ball = True
+
+        if obs["ball_owned_team"] == 0:
+            self.own_gk_ball = self.players["left_team"][obs["ball_owned_player"]].role == PlayerRole.GoalKeeper
 
         self.sticky_actions = obs["sticky_actions"]
 

@@ -136,6 +136,47 @@ class Agent:
                 return Action.Sprint
         return None
 
+    def _calc_ball_future(self):
+        if self.gc.neutral_ball:
+            ball_speed = self.gc.get_ball_speed()
+            ball_future = self.gc.ball[-1]
+
+            ball_z = self.gc.ball_height[-1]
+            z_speed = 0
+            if len(self.gc.ball_height) > 1:
+                z_speed = self.gc.ball_height[-1] - self.gc.ball_height[-2]
+
+            for t in range(1, 21):
+                ball_future = self.gc.ball[-1] + t*ball_speed
+                if self.gc.ball_height[-1] < 0.5:
+                    ball_speed = 0.95*ball_speed
+
+                dist = utils.distance(ball_future, self.gc.controlled_player.pos)
+                closest_opp_dist, opp = self._get_closest(ball_future, OPP_TEAM)
+
+                clear = True
+                if clear and ball_speed[0] < 0 and ball_z < 1.0 and closest_opp_dist < 0.04 < dist:
+                    # opponent intercepts
+                    direction = self.own_goal - ball_future
+                    ball_speed = 0.01 * direction / utils.length(direction)
+                    clear = False
+
+                if (dist / t < 0.01) and (ball_z + z_speed*t - 0.1*t*t <= 0):
+                    break
+
+        else:
+            ball_speed = self.gc.get_ball_speed()
+            ball_future = self.gc.ball[-1] + 3*ball_speed
+
+            direction = self.own_goal - ball_future
+            direction /= utils.length(direction)
+            for t in range(4, 21):
+                ball_future = ball_future + 0.008*direction
+                dist = utils.distance(ball_future, self.gc.controlled_player.pos)
+                if dist / t < 0.01:
+                    break
+        return ball_future
+
     def defend(self):
         if self.gc.neutral_ball:
             dist1 = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
@@ -159,37 +200,10 @@ class Agent:
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
             direction = self._run_towards(self.gc.controlled_player.pos, self.gc.ball[-1])
             return direction
+        elif self.gc.own_gk_ball:
+            return Action.TopRight
 
-        if self.gc.neutral_ball:
-            ball_speed = self.gc.get_ball_speed()
-            ball_future = self.gc.ball[-1]
-
-            ball_z = self.gc.ball_height[-1]
-            z_speed = 0
-            if len(self.gc.ball_height) > 1:
-                z_speed = self.gc.ball_height[-1] - self.gc.ball_height[-2]
-
-            for t in range(1, 21):
-                ball_future = self.gc.ball[-1] + t*ball_speed
-                if self.gc.ball_height[-1] < 0.5:
-                    ball_speed = 0.95*ball_speed
-
-                dist = utils.distance(ball_future, self.gc.controlled_player.pos)
-                if (dist / t < 0.01) and (ball_z + z_speed*t - 0.1*t*t <= 0):
-                    break
-
-        else:
-            ball_speed = self.gc.get_ball_speed()
-            ball_future = self.gc.ball[-1] + 3*ball_speed
-
-            direction = self.own_goal - ball_future
-            direction /= utils.length(direction)
-            for t in range(4, 21):
-                ball_future = ball_future + 0.008*direction
-                dist = utils.distance(ball_future, self.gc.controlled_player.pos)
-                if dist / t < 0.01:
-                    break
-
+        ball_future = self._calc_ball_future()
         dir_action = self._run_towards(self.gc.controlled_player.pos, ball_future)
 
         if not self.gc.neutral_ball:
