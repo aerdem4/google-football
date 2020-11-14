@@ -36,18 +36,21 @@ class Agent:
     def _run_towards(self, source, target, c=0.0):
         v = target - source
         dir_score = np.zeros(len(self.dir_actions))
-        obstacles = [p.pos for p in self.gc.players[OPP_TEAM]
-                     if utils.distance(p.pos, source) < 0.15]
+        obstacles = [p for p in self.gc.players[OPP_TEAM]
+                     if utils.distance(p.pos, source) < 0.2]
 
         for i in range(len(self.dir_actions)):
             dir_score[i] = utils.cosine_sim(v, self.dir_xy[i])
             if c > 0:
                 for obs in obstacles:
-                    avoidance = max(0, utils.cosine_sim(obs - source, self.dir_xy[i]))**2
+                    avoidance_now = max(0, utils.cosine_sim(obs.pos - source, self.dir_xy[i]))**2
+                    avoidance_future = max(0, utils.cosine_sim(obs.get_future_pos(9) - source, self.dir_xy[i])) ** 2
+                    avoidance = max(avoidance_now, avoidance_future)
                     dir_score[i] -= c*avoidance
 
                 future_loc = source + self.dir_xy[i]*0.1
-                if abs(future_loc[0]) > 0.95 or abs(future_loc[1]) > 0.4:
+                if abs(future_loc[0]) > 0.9 or abs(future_loc[1]) > 0.4 or \
+                        utils.distance(future_loc, self.own_goal) < 0.2:
                     dir_score[i] = -np.inf
         which_dir = int(np.argmax(dir_score))
         return self.dir_actions[which_dir]
@@ -270,24 +273,10 @@ class Agent:
                 if self._check_action_counter(9):
                     self.dir_cache.register(Action.Right)
                     return self.macro_list.add_macro([Action.Right] + [action]*3, True)
-        else:
-            closest_opp_dist, closest_opp = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
 
-            opp_between = utils.between(closest_opp.pos, self.gc.controlled_player.pos, self.opponent_penalty, -0.2)
-            if opp_between and closest_opp_dist < 0.06:
-                direction = self.gc.controlled_player.pos - closest_opp.pos
-                direction[0] = 0
-                current_dir = self.gc.controlled_player.direction
-                if utils.cosine_sim(direction, current_dir) < -0.3 and self.gc.controlled_player.pos[0] > -0.85:
-                    return Action.Left
-                if direction[1] > 0:
-                    return Action.Bottom
-                else:
-                    return Action.Top
-
-        if self.gc.controlled_player.pos[0] < 0.7:
-            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, c=1.0)
-        return self._run_towards(self.gc.controlled_player.pos, self.opp_goal, c=1.0)
+        if dist_to_goal > 0.2:
+            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, c=dist_to_goal)
+        return self._run_towards(self.gc.controlled_player.pos, self.opp_goal)
 
     def game_mode_act(self):
         if self.gc.current_obs["game_mode"] == GameMode.Penalty:
