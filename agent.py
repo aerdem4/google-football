@@ -259,9 +259,19 @@ class Agent:
         if clear_action is not None:
             return clear_action
 
-        looking_forward = self.gc.controlled_player.direction[0] > 0
+        looking_own_goal = utils.cosine_sim(self.own_goal - self.gc.controlled_player.pos,
+                                            self.gc.controlled_player.direction) > 0.3
+        dist_to_own_goal = utils.distance(self.own_goal, self.gc.controlled_player.pos)
+        risky = any([utils.between(p.pos, self.gc.controlled_player.pos, self.own_goal, -0.5)
+                     for p in self.gc.players[OPP_TEAM]])
+        closest_opp_dist, _ = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
+        if looking_own_goal and closest_opp_dist < 0.1 and 0.2 < dist_to_own_goal < 0.4 and not risky:
+            direction = self._run_towards(self.gc.controlled_player.pos, self.own_goal)
+            if self.action_counter[Action.ShortPass] > 9:
+                self.dir_cache.register(direction)
+                return Action.ShortPass
 
-        if looking_forward:
+        if not looking_own_goal:
             forward_teammates = [player for player in self.gc.players[OWN_TEAM]
                                  if utils.distance(player.pos, self.opp_goal) < dist_to_goal]
             offside = any([p.offside for p in forward_teammates])
@@ -275,7 +285,7 @@ class Agent:
                     return self.macro_list.add_macro([Action.Right] + [action]*3, True)
 
         if dist_to_goal > 0.2:
-            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, c=dist_to_goal)
+            return self._run_towards(self.gc.controlled_player.pos, self.opponent_penalty, c=max(0.5, dist_to_goal))
         return self._run_towards(self.gc.controlled_player.pos, self.opp_goal)
 
     def game_mode_act(self):
