@@ -61,9 +61,9 @@ class GameCache:
             self.neutral_ball = True
 
         if obs["ball_owned_team"] == 0:
-            ball_owner = self.players["left_team"][obs["ball_owned_player"]]
-            self.own_gk_ball = ((ball_owner.role == PlayerRole.GoalKeeper) and
-                                (utils.distance(ball_owner.pos, self.ball[-1]) < 0.02))
+            self.own_gk_ball = self.players["left_team"][obs["ball_owned_player"]].role == PlayerRole.GoalKeeper
+        else:
+            self.own_gk_ball = False
 
         self.sticky_actions = obs["sticky_actions"]
 
