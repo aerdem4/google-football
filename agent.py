@@ -176,6 +176,7 @@ class Agent:
                 dist = utils.distance(ball_future, self.gc.controlled_player.pos)
                 if dist / t < 0.01:
                     break
+
         return ball_future
 
     def defend(self):
@@ -206,7 +207,7 @@ class Agent:
             direction = self._run_towards(self.gc.controlled_player.pos, self.gc.ball[-1])
             return direction
         elif self.gc.own_gk_ball:
-            return Action.TopRight
+            return self._run_towards(self.gc.controlled_player.pos, np.array([-0.4, 0.0]), c=2)
 
         ball_future = self._calc_ball_future()
         dir_action = self._run_towards(self.gc.controlled_player.pos, ball_future)
