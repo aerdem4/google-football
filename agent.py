@@ -178,6 +178,34 @@ class Agent:
 
         return ball_future
 
+    def _find_best_pass_option(self):
+        players = self.gc.players[OWN_TEAM]
+
+        best_index = None
+        best_opp_dist = np.inf
+        for i, p in enumerate(players):
+            dist_to_goal = utils.distance(p.pos, self.opp_goal)
+
+            valid = True
+            if p.offside and i != self.gc.current_obs['active']:
+                valid = False
+            else:
+                for opp in self.gc.players[OPP_TEAM]:
+                    dist = utils.distance(p.pos, opp.pos)
+                    between = utils.cosine_sim(opp.pos - p.pos, self.opp_goal - opp.pos)
+
+                    if dist < 0.1 or between > 0.7:
+                        valid = False
+                        break
+
+            if valid and dist_to_goal < best_opp_dist:
+                best_index = i
+
+        if best_index is not None and best_index != self.gc.current_obs['active']:
+            return players[best_index]
+
+        return None
+
     def defend(self):
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
             direction = self._run_towards(self.gc.ball[-1])
@@ -266,6 +294,16 @@ class Agent:
                                             self.gc.controlled_player.direction) > 0.5
 
         if not looking_own_goal:
+            best_option = self._find_best_pass_option()
+            if best_option is not None:
+                direction = self._run_towards(best_option.pos + np.array([0.1, 0.0]), c=0.5)
+                action = Action.LongPass
+                if self.gc.controlled_player.pos[0] < -0.2:
+                    action = Action.HighPass
+                if self._check_action_counter(9):
+                    self.dir_cache.register(direction)
+                    return self.macro_list.add_macro([direction, action], True)
+
             forward_teammates = [player for player in self.gc.players[OWN_TEAM]
                                  if utils.distance(player.pos, self.opp_goal) < dist_to_goal]
             offside = any([p.offside for p in forward_teammates])
