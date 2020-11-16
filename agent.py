@@ -40,7 +40,7 @@ class Agent:
         obstacles = [p for p in self.gc.players[OPP_TEAM]
                      if utils.distance(p.pos, source) < 0.2]
 
-        speed = self.gc.get_ball_speed()
+        speed = self.gc.get_player_speed()
         magnitude = utils.length(speed)
         for i in range(len(self.dir_actions)):
             dir_score[i] = (1 + utils.cosine_sim(v, self.dir_xy[i]))
@@ -161,7 +161,7 @@ class Agent:
                     ball_future = self.own_penalty
                     break
 
-                if (dist / t < 0.01) and (ball_z + z_speed*t - 0.1*t*t <= 0):
+                if (dist / t < 0.01) and (ball_z + z_speed*t - 0.1*t*t <= 0.5):
                     break
 
         else:
@@ -194,7 +194,7 @@ class Agent:
                     dist = utils.distance(p.pos, opp.pos)
                     between = utils.cosine_sim(opp.pos - p.pos, self.opp_goal - opp.pos)
 
-                    if dist < 0.1 or between > 0.7:
+                    if (dist < 0.1 and opp.pos[0] + 0.02 > p.pos[0]) or between > 0.7:
                         valid = False
                         break
 
@@ -308,7 +308,7 @@ class Agent:
                                  if utils.distance(player.pos, self.opp_goal) < dist_to_goal]
             offside = any([p.offside for p in forward_teammates])
             forward_teammates = [p for p in forward_teammates if not p.offside]
-            if self._detect_obstacle(self.gc.controlled_player) and len(forward_teammates) > 0 and not offside:
+            if ((self._detect_obstacle(self.gc.controlled_player) and not offside) or self.gc.ball[-1][0] < -0.2) and len(forward_teammates) > 0:
                 action = Action.LongPass
                 if self.gc.controlled_player.pos[0] < -0.2:
                     action = Action.HighPass
