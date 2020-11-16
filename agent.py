@@ -40,11 +40,12 @@ class Agent:
         obstacles = [p for p in self.gc.players[OPP_TEAM]
                      if utils.distance(p.pos, source) < 0.2]
 
-        speed = self.gc.get_player_speed()
+        speed = self.gc.get_ball_speed()
         magnitude = utils.length(speed)
         for i in range(len(self.dir_actions)):
-            dir_score[i] = utils.cosine_sim(v, self.dir_xy[i])
-            dir_score[i] += 20*magnitude*utils.cosine_sim(speed, self.dir_xy[i])
+            dir_score[i] = (1 + utils.cosine_sim(v, self.dir_xy[i]))
+            if magnitude > 0.004:
+                dir_score[i] *= (utils.cosine_sim(speed, self.dir_xy[i]) > 0)
             if c > 0:
                 for obs in obstacles:
                     avoidance_now = max(0, utils.cosine_sim(obs.pos - source, self.dir_xy[i]))**2
@@ -263,15 +264,6 @@ class Agent:
 
         looking_own_goal = utils.cosine_sim(self.own_goal - self.gc.controlled_player.pos,
                                             self.gc.controlled_player.direction) > 0.5
-        dist_to_own_goal = utils.distance(self.own_goal, self.gc.controlled_player.pos)
-        risky = any([utils.between(p.pos, self.gc.controlled_player.pos, self.own_goal, -0.5)
-                     for p in self.gc.players[OPP_TEAM]])
-        closest_opp_dist, _ = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
-        if looking_own_goal and closest_opp_dist < 0.1 and 0.2 < dist_to_own_goal < 0.4 and not risky:
-            direction = self._run_towards(self.own_goal)
-            if self.action_counter[Action.ShortPass] > 9:
-                self.dir_cache.register(direction)
-                return Action.ShortPass
 
         if not looking_own_goal:
             forward_teammates = [player for player in self.gc.players[OWN_TEAM]
@@ -286,8 +278,10 @@ class Agent:
                     self.dir_cache.register(Action.Right)
                     return self.macro_list.add_macro([Action.Right, action], True)
 
-        if dist_to_goal > 0.2:
-            return self._run_towards(self.opponent_penalty, c=max(0.5, dist_to_goal))
+        if dist_to_goal > 0.4:
+            return self._run_towards(self.opponent_penalty, c=max(0.8, dist_to_goal))
+        elif dist_to_goal > 0.2:
+            return self._run_towards(self.opp_goal, c=0.5)
         return self._run_towards(self.opp_goal)
 
     def game_mode_act(self):
