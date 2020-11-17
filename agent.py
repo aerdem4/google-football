@@ -44,9 +44,11 @@ class Agent:
         magnitude = utils.length(speed)
         for i in range(len(self.dir_actions)):
             dir_score[i] = (1 + utils.cosine_sim(v, self.dir_xy[i]))
-            if magnitude > 0.004:
-                dir_score[i] *= (utils.cosine_sim(speed, self.dir_xy[i]) > 0)
+
             if c > 0:
+                if magnitude > 0.004:
+                    dir_score[i] *= (utils.cosine_sim(speed, self.dir_xy[i]) > 0)
+
                 for obs in obstacles:
                     avoidance_now = max(0, utils.cosine_sim(obs.pos - source, self.dir_xy[i]))**2
                     avoidance_future = max(0, utils.cosine_sim(obs.get_future_pos(9) - source, self.dir_xy[i])) ** 2
@@ -310,11 +312,16 @@ class Agent:
             forward_teammates = [p for p in forward_teammates if not p.offside]
             if ((self._detect_obstacle(self.gc.controlled_player) and not offside) or self.gc.ball[-1][0] < -0.2) and len(forward_teammates) > 0:
                 action = Action.LongPass
+                direction = Action.Right
                 if self.gc.controlled_player.pos[0] < -0.2:
                     action = Action.HighPass
+                    if self.gc.controlled_player.direction[1] > 0:
+                        direction = Action.BottomRight
+                    else:
+                        direction = Action.TopRight
                 if self._check_action_counter(9):
-                    self.dir_cache.register(Action.Right)
-                    return self.macro_list.add_macro([Action.Right, action], True)
+                    self.dir_cache.register(direction)
+                    return self.macro_list.add_macro([direction, action], True)
 
         if dist_to_goal > 0.4:
             return self._run_towards(self.opponent_penalty, c=max(0.8, dist_to_goal))
