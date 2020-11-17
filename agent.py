@@ -34,7 +34,7 @@ class Agent:
         return True
 
     def _run_towards(self, target, c=0.0):
-        source = self.gc.controlled_player.pos
+        source = self.gc.controlled_player.get_future_pos(1)
         v = target - source
         dir_score = np.zeros(len(self.dir_actions))
         obstacles = [p for p in self.gc.players[OPP_TEAM]
@@ -168,15 +168,22 @@ class Agent:
 
         else:
             ball_speed = self.gc.get_ball_speed()
-            ball_future = self.gc.ball[-1] + 3*ball_speed
+            ball_future = self.gc.ball[-1] + ball_speed
+            if self.gc.ball[-1][0] < 0:
 
-            direction = self.own_goal - ball_future
-            direction /= utils.length(direction)
-            for t in range(4, 21):
-                ball_future = ball_future + 0.008*direction
                 dist = utils.distance(ball_future, self.gc.controlled_player.pos)
-                if dist / t < 0.01:
-                    break
+                if dist > 0.2:
+                    return self.own_penalty
+
+                direction = self.own_goal - ball_future
+                direction /= utils.length(direction)
+                v = utils.length(ball_speed)
+                for t in range(1, 21):
+                    ball_future = ball_future + v*direction
+                    v = (v + 0.008)/2
+                    dist = utils.distance(ball_future, self.gc.controlled_player.pos)
+                    if dist / t < 0.01:
+                        break
 
         return ball_future
 
