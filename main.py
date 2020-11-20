@@ -8,10 +8,19 @@ sys.path.insert(0, "/kaggle_simulations/agent")
 
 import numpy as np
 from kaggle_environments.envs.football.helpers import *
-from agent import Agent
+from agent import Agent51, Agent42
+from game_cache import GameCache, DirCache
+from macros import MacroList
+from collections import defaultdict
 
 
-lugano = Agent()
+gcache = GameCache()
+macro_list = MacroList(gcache)
+action_counter = defaultdict(lambda: 99)
+dir_cache = DirCache(gcache)
+
+lugano = Agent42(gcache, macro_list, action_counter, dir_cache)
+alex = Agent51(gcache, macro_list, action_counter, dir_cache)
 
 
 def agent(obs):
@@ -19,7 +28,7 @@ def agent(obs):
 
     action = Action.ReleaseDribble
     try:
-        global lugano
+        global lugano, alex, gcache
         obs = obs['players_raw'][0]
         # Turn 'sticky_actions' into a set of active actions (strongly typed).
         obs['sticky_actions'] = {sticky_index_to_action[nr] for nr, action in enumerate(obs['sticky_actions']) if action}
@@ -32,7 +41,11 @@ def agent(obs):
         obs['left_team_roles'] = [PlayerRole(role) for role in obs['left_team_roles']]
         obs['right_team_roles'] = [PlayerRole(role) for role in obs['right_team_roles']]
 
-        action = lugano.act(obs)
+        gcache.update(obs)
+        if (gcache.time // 500) % 2 == 0:
+            action = lugano.act()
+        else:
+            action = alex.act()
     except Exception as e:
         print(e)
 
