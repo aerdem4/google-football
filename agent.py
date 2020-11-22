@@ -194,10 +194,15 @@ class Agent:
                     dist = utils.distance(p.pos, opp.pos)
                     between = utils.cosine_sim(opp.pos - p.pos, self.opp_goal - opp.pos)
 
-                    if (dist < 0.1 and opp.pos[0] + 0.02 > p.pos[0]) or between > 0.7:
+                    intercept = utils.cosine_sim(opp.pos - self.gc.controlled_player.pos,
+                                                 p.pos + np.array([0.1, 0.0]) - opp.pos)
+
+                    if (dist < 0.1 and opp.pos[0] + 0.02 > p.pos[0]) or between > 0.7 or intercept > 0.8:
                         valid = False
                         break
 
+            if i != self.gc.current_obs['active']:
+                dist_to_goal += 0.02
             if valid and dist_to_goal < best_opp_dist:
                 best_index = i
 
@@ -262,6 +267,7 @@ class Agent:
                 direction = Action.Bottom
             if abs(self.gc.controlled_player.pos[1]) > 0.25:
                 action = Action.HighPass
+                direction = Action.Right
 
             if direction is not None and self.action_counter[action] > 29:
                 self.dir_cache.register(direction)
@@ -270,7 +276,7 @@ class Agent:
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         future_pos = self.gc.controlled_player.get_future_pos(7)
         dist_to_goal = utils.distance(future_pos, self.opp_goal)
-        dist_to_gk = utils.distance(future_pos, opp_gk.get_future_pos(7))
+        dist_to_gk = utils.distance(future_pos, opp_gk.pos + 2*7*opp_gk.get_speed())
         looking_towards_goal = utils.cosine_sim(self.opp_goal - self.gc.controlled_player.pos,
                                                 self.gc.controlled_player.direction) > 0.7
         if ((dist_to_goal < 0.25) or (dist_to_gk < 0.25)) and looking_towards_goal:
@@ -310,7 +316,7 @@ class Agent:
             offside = any([p.offside for p in forward_teammates])
             forward_teammates = [p for p in forward_teammates if not p.offside]
             if ((self._detect_obstacle(self.gc.controlled_player) and not offside) or self.gc.ball[-1][0] < -0.2) and len(forward_teammates) > 0:
-                action = Action.LongPass
+                action = Action.ShortPass
                 direction = Action.Right
                 if self.gc.controlled_player.pos[0] < -0.2:
                     action = Action.HighPass
