@@ -148,32 +148,34 @@ class Agent:
             if len(self.gc.ball_height) > 1:
                 z_speed = self.gc.ball_height[-1] - self.gc.ball_height[-2]
 
+            clear = True
             for t in range(1, 21):
                 ball_future = self.gc.ball[-1] + t*ball_speed
-                if self.gc.ball_height[-1] < 0.5:
+                if clear and self.gc.ball_height[-1] < 0.5:
                     ball_speed = 0.95*ball_speed
 
                 dist = utils.distance(ball_future, self.gc.controlled_player.pos)
                 closest_opp_dist, opp = self._get_closest(ball_future, OPP_TEAM)
 
-                if ball_future[0] < 0 and ball_z < 1.0 and closest_opp_dist < 0.04 < dist:
-                    # opponent intercepts
-                    ball_future = self.own_penalty
-                    break
+                if clear and ball_future[0] < 0 and ball_speed[0] < 0 and ball_z < 1.0 and closest_opp_dist < 0.04 < dist:
+                    direction = self.own_goal - ball_future
+                    ball_speed = 0.006 * direction / utils.length(direction)
+                    clear = False
 
-                if (dist / t < 0.01) and (ball_z + z_speed*t - 0.1*t*t <= 0.5):
+                if (dist / t < 0.008) and (ball_z + z_speed*t - 0.1*t*t <= 0.2):
                     break
 
         else:
             ball_speed = self.gc.get_ball_speed()
             ball_future = self.gc.ball[-1] + 3*ball_speed
+            player_pos = self.gc.controlled_player.pos + 3*self.gc.get_player_speed()
 
             direction = self.own_goal - ball_future
             direction /= utils.length(direction)
-            for t in range(4, 21):
-                ball_future = ball_future + 0.008*direction
-                dist = utils.distance(ball_future, self.gc.controlled_player.pos)
-                if dist / t < 0.01:
+            for t in range(1, 21):
+                ball_future = ball_future + 0.006*direction
+                dist = utils.distance(ball_future, player_pos)
+                if dist / t < 0.008:
                     break
 
         return ball_future
@@ -276,7 +278,7 @@ class Agent:
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         future_pos = self.gc.controlled_player.get_future_pos(7)
         dist_to_goal = utils.distance(future_pos, self.opp_goal)
-        dist_to_gk = utils.distance(future_pos, opp_gk.pos + 2*7*opp_gk.get_speed())
+        dist_to_gk = utils.distance(future_pos, opp_gk.pos + 4*7*opp_gk.get_speed())
         looking_towards_goal = utils.cosine_sim(self.opp_goal - self.gc.controlled_player.pos,
                                                 self.gc.controlled_player.direction) > 0.7
         if ((dist_to_goal < 0.25) or (dist_to_gk < 0.25)) and looking_towards_goal:
@@ -315,15 +317,22 @@ class Agent:
                                  if utils.distance(player.pos, self.opp_goal) < dist_to_goal]
             offside = any([p.offside for p in forward_teammates])
             forward_teammates = [p for p in forward_teammates if not p.offside]
-            if ((self._detect_obstacle(self.gc.controlled_player) and not offside) or self.gc.ball[-1][0] < -0.2) and len(forward_teammates) > 0:
+
+            if self._detect_obstacle(self.gc.controlled_player) and not offside and len(forward_teammates) > 0:
                 action = Action.ShortPass
-                direction = Action.Right
-                if self.gc.controlled_player.pos[0] < -0.2:
-                    action = Action.HighPass
-                    if self.gc.controlled_player.direction[1] > 0:
-                        direction = Action.BottomRight
-                    else:
-                        direction = Action.TopRight
+                if self.gc.controlled_player.direction[1] > 0:
+                    direction = Action.TopRight
+                else:
+                    direction = Action.BottomRight
+                if self._check_action_counter(9):
+                    self.dir_cache.register(direction)
+                    return self.macro_list.add_macro([direction, action], True)
+            elif self.gc.ball[-1][0] < -0.2 and len(forward_teammates) > 0:
+                action = Action.HighPass
+                if self.gc.controlled_player.direction[1] > 0:
+                    direction = Action.BottomRight
+                else:
+                    direction = Action.TopRight
                 if self._check_action_counter(9):
                     self.dir_cache.register(direction)
                     return self.macro_list.add_macro([direction, action], True)
