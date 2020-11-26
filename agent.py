@@ -217,20 +217,6 @@ class Agent:
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
             return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right] + [Action.HighPass]*3, True)
 
-        if self.gc.controlled_player.pos[0] > 0.75:
-            direction = None
-            action = Action.ShortPass
-            if self.gc.controlled_player.pos[1] > 0.15:
-                direction = Action.Top
-            elif self.gc.controlled_player.pos[1] < -0.15:
-                direction = Action.Bottom
-            if abs(self.gc.controlled_player.pos[1]) > 0.25:
-                action = Action.HighPass
-
-            if direction is not None and self.action_counter[action] > 29:
-                self.dir_cache.register(direction)
-                return self.macro_list.add_macro([Action.ReleaseSprint, direction, action], True)
-
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
         dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
@@ -256,6 +242,23 @@ class Agent:
 
         looking_forward = self.gc.controlled_player.direction[0] > 0
 
+        dist_to_penalty = utils.distance(self.gc.controlled_player.pos, self.opponent_penalty)
+        highball_points = [np.array([0.9, 0.35]), np.array([0.9, -0.35])]
+        dist_to_highball_points = [utils.distance(hbp, self.gc.controlled_player.pos) for hbp in highball_points]
+        hb_actions = [Action.Top, Action.Bottom]
+
+        on_side = (self.gc.controlled_player.pos[0] > 0.2 and
+                   any([p < dist_to_penalty for p in dist_to_highball_points]))
+
+        if on_side:
+            which = int(np.argmin(dist_to_highball_points))
+            if dist_to_highball_points[which] < 0.07:
+                self.dir_cache.register(hb_actions[which])
+                return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right] + [Action.HighPass]*2 +
+                                                 [hb_actions[which], Action.HighPass], True)
+            else:
+                return self._run_towards(highball_points[which])
+
         if looking_forward:
             forward_teammates = [player for player in self.gc.players[OWN_TEAM]
                                  if utils.distance(player.pos, self.opp_goal) < dist_to_goal]
@@ -263,11 +266,13 @@ class Agent:
             forward_teammates = [p for p in forward_teammates if (not self._detect_obstacle(p)) and (not p.offside)]
             if self._detect_obstacle(self.gc.controlled_player) and len(forward_teammates) > 0 and not offside:
                 action = Action.LongPass
+                direction = Action.Right
                 if self.gc.controlled_player.pos[0] < -0.2:
                     action = Action.HighPass
+
                 if self._check_action_counter(9):
-                    self.dir_cache.register(Action.Right)
-                    return self.macro_list.add_macro([Action.Right] + [action]*3, True)
+                    self.dir_cache.register(direction)
+                    return self.macro_list.add_macro([direction] + [action]*3, True)
 
         if dist_to_goal > 0.2:
             return self._run_towards(self.opponent_penalty, c=dist_to_goal)
