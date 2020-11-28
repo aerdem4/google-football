@@ -77,11 +77,11 @@ class Agent:
             return True
         return False
 
-    def _last_man_standing(self):
+    def _last_man_standing(self, safety=0):
         dist = utils.distance(self.gc.controlled_player.pos, self.own_goal)
         distances = [utils.distance(player.pos, self.own_goal) for player in self.gc.players[OWN_TEAM]
                      if player.role != PlayerRole.GoalKeeper]
-        if sum([d < dist for d in distances]) == 0:
+        if sum([d < dist for d in distances]) <= safety:
             return True
         return False
 
@@ -107,8 +107,8 @@ class Agent:
 
         closest_opp_dist, _ = self._get_closest(self.gc.controlled_player.pos, OPP_TEAM)
 
-        if closest_opp_dist < 0.1 and self.action_counter[Action.Shot] > 9:
-            return Action.Shot
+        if closest_opp_dist < 0.1 and self.action_counter[Action.HighPass] > 9:
+            return Action.HighPass
         return None
 
     def _detect_obstacle(self, player):
@@ -217,6 +217,20 @@ class Agent:
         if self.gc.controlled_player.role == PlayerRole.GoalKeeper:
             return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right] + [Action.HighPass]*3, True)
 
+        if self.gc.controlled_player.pos[0] > 0.75:
+            direction = None
+            action = Action.ShortPass
+            if self.gc.controlled_player.pos[1] > 0.15:
+                direction = Action.Top
+            elif self.gc.controlled_player.pos[1] < -0.15:
+                direction = Action.Bottom
+            if abs(self.gc.controlled_player.pos[1]) > 0.25:
+                action = Action.HighPass
+
+            if direction is not None and self.action_counter[action] > 29:
+                self.dir_cache.register(direction)
+                return self.macro_list.add_macro([Action.ReleaseSprint, direction, action], True)
+
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
         dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
         dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
@@ -238,26 +252,13 @@ class Agent:
 
         clear_action = self._decide_clear_ball()
         if clear_action is not None:
+            if self.gc.controlled_player.direction[1] > 0:
+                self.dir_cache.register(Action.BottomRight)
+            else:
+                self.dir_cache.register(Action.TopRight)
             return clear_action
 
         looking_forward = self.gc.controlled_player.direction[0] > 0
-
-        dist_to_penalty = utils.distance(self.gc.controlled_player.pos, self.opponent_penalty)
-        highball_points = [np.array([0.9, 0.35]), np.array([0.9, -0.35])]
-        dist_to_highball_points = [utils.distance(hbp, self.gc.controlled_player.pos) for hbp in highball_points]
-        hb_actions = [Action.Top, Action.Bottom]
-
-        on_side = (self.gc.controlled_player.pos[0] > 0.2 and
-                   any([p < dist_to_penalty for p in dist_to_highball_points]))
-
-        if on_side:
-            which = int(np.argmin(dist_to_highball_points))
-            if dist_to_highball_points[which] < 0.07:
-                self.dir_cache.register(hb_actions[which])
-                return self.macro_list.add_macro([Action.ReleaseSprint, Action.Right] + [Action.HighPass]*2 +
-                                                 [hb_actions[which], Action.HighPass], True)
-            else:
-                return self._run_towards(highball_points[which])
 
         if looking_forward:
             forward_teammates = [player for player in self.gc.players[OWN_TEAM]
@@ -266,16 +267,20 @@ class Agent:
             forward_teammates = [p for p in forward_teammates if (not self._detect_obstacle(p)) and (not p.offside)]
             if self._detect_obstacle(self.gc.controlled_player) and len(forward_teammates) > 0 and not offside:
                 action = Action.LongPass
-                direction = Action.Right
                 if self.gc.controlled_player.pos[0] < -0.2:
                     action = Action.HighPass
-
                 if self._check_action_counter(9):
-                    self.dir_cache.register(direction)
-                    return self.macro_list.add_macro([direction] + [action]*3, True)
+                    self.dir_cache.register(Action.Right)
+                    return self.macro_list.add_macro([Action.Right] + [action]*3, True)
 
-        if dist_to_goal > 0.2:
+        if dist_to_goal > 1.5:
+            if self.gc.controlled_player.pos[1] > 0:
+                return self._run_towards(np.array([-0.2, 0.3]), c=dist_to_goal)
+            else:
+                return self._run_towards(np.array([-0.2, -0.3]), c=dist_to_goal)
+        elif dist_to_goal > 0.2:
             return self._run_towards(self.opponent_penalty, c=dist_to_goal)
+
         return self._run_towards(self.opp_goal)
 
     def game_mode_act(self):
