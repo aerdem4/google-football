@@ -40,14 +40,18 @@ def get_player_obs(obs, offside_safety=0.02):
             player.direction = np.array(obs[f"{team_name}_direction"][i])
             player.tired = obs[f"{team_name}_tired_factor"][i]
 
+            os = offside_safety
+            if player.pos[0] > 0.6:
+                os = 0.0
+
             if team_name == "left_team":
-                player.offside = (player.pos[0] > obs["ball"][0]) and (player.pos[0] > -offside_safety)
+                player.offside = (player.pos[0] > obs["ball"][0]) and (player.pos[0] > -os)
                 if player.offside:
-                    player.offside = sum([player.pos[0] < opp[0] - offside_safety for opp in obs["right_team"]]) < 2
+                    player.offside = sum([player.pos[0] < opp[0] - os for opp in obs["right_team"]]) < 2
             else:
-                player.offside = (player.pos[0] < obs["ball"][0]) and (player.pos[0] < offside_safety)
+                player.offside = (player.pos[0] < obs["ball"][0]) and (player.pos[0] < os)
                 if player.offside:
-                    player.offside = sum([player.pos[0] > opp[0] + offside_safety for opp in obs["left_team"]]) < 2
+                    player.offside = sum([player.pos[0] > opp[0] + os for opp in obs["left_team"]]) < 2
 
             players[team_name].append(player)
 

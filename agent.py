@@ -57,9 +57,8 @@ class Agent:
         return self.dir_actions[which_dir]
 
     def _get_opponent_by_role(self, role):
-        # TODO: check if opponent is out by red card
-        opponent = [opp.pos for i, opp in enumerate(self.gc.players[OPP_TEAM]) if opp.role == role][0]
-        return np.array(opponent)
+        opponent = [opp for i, opp in enumerate(self.gc.players[OPP_TEAM]) if opp.role == role][0]
+        return opponent
 
     def _get_closest(self, point, team, steps=0):
         distances = [utils.distance(opp.get_future_pos(steps), point) for opp in self.gc.players[team]]
@@ -118,7 +117,7 @@ class Agent:
         future_pos += 4*0.01*future_dir
 
         obstacles = [opp.get_future_pos(7) for opp in self.gc.players[OPP_TEAM]]
-        detected = any([utils.distance(future_pos, o) < 0.05 for o in obstacles])
+        detected = any([(utils.distance(future_pos, o) < 0.08) and (o[0] - future_pos[0] > -0.02) for o in obstacles])
 
         return detected
 
@@ -232,11 +231,11 @@ class Agent:
                 return self.macro_list.add_macro([Action.ReleaseSprint, direction, action], True)
 
         opp_gk = self._get_opponent_by_role(PlayerRole.GoalKeeper)
-        dist_to_goal = utils.distance(self.gc.controlled_player.pos, self.opp_goal)
-        dist_to_gk = utils.distance(self.gc.controlled_player.pos, opp_gk)
+        dist_to_goal = utils.distance(self.gc.controlled_player.get_future_pos(7), self.opp_goal)
+        dist_to_gk = utils.distance(self.gc.controlled_player.get_future_pos(7), opp_gk.get_future_pos(14))
         looking_towards_goal = utils.cosine_sim(self.opp_goal - self.gc.controlled_player.pos,
                                                 self.gc.controlled_player.direction) > 0.7
-        if ((dist_to_goal < 0.3) or (dist_to_gk < 0.3)) and looking_towards_goal:
+        if ((dist_to_goal < 0.25) or (dist_to_gk < 0.25)) and looking_towards_goal:
             if self.action_counter[Action.Shot] > 9:
                 last_move = Action.Right
                 if Action.Right in self.gc.sticky_actions:
