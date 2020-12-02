@@ -1,7 +1,6 @@
 import numpy as np
 from kaggle_environments.envs.football.helpers import GameMode, PlayerRole
 from player import get_player_obs
-import utils
 
 
 class GameCache:

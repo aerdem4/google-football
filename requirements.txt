@@ -1,2 +1,2 @@
 numpy
-kaggle-environments
+kaggle-environments==1.4.0
